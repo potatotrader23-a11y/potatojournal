@@ -1,0 +1,168 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+:root {
+  --background: #f6f7ff;
+  --foreground: #11172b;
+  --card: #ffffff;
+  --card-foreground: #11172b;
+  --popover: #ffffff;
+  --popover-foreground: #11172b;
+  --primary: #3a86ff;
+  --primary-foreground: #ffffff;
+  --secondary: #bdb2ff;
+  --secondary-foreground: #352f62;
+  --muted: #eceefe;
+  --muted-foreground: #68728f;
+  --accent: #ffd6e0;
+  --accent-foreground: #572d3d;
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: rgb(36 53 91 / 11%);
+  --input: rgb(36 53 91 / 15%);
+  --ring: #3a86ff80;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.75rem;
+  --sidebar: #fbfbff;
+  --sidebar-foreground: #11172b;
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: #0b1020;
+  --foreground: #fff4f4;
+  --card: #141b31;
+  --card-foreground: #fff4f4;
+  --popover: #18213b;
+  --popover-foreground: #fff4f4;
+  --primary: #3a86ff;
+  --primary-foreground: #ffffff;
+  --secondary: #bdb2ff;
+  --secondary-foreground: #11172b;
+  --muted: #1b2543;
+  --muted-foreground: #9fa9c8;
+  --accent: #ffd6e0;
+  --accent-foreground: #151a2d;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #3a86ff80;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: #080d1b;
+  --sidebar-foreground: #fff4f4;
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply rounded-2xl border border-border bg-card shadow-[0_14px_40px_rgba(28,48,94,.08)];
+  }
+
+  .app-canvas {
+    background-image:
+      radial-gradient(
+        circle at 78% -8%,
+        rgba(58, 134, 255, 0.12),
+        transparent 34%
+      ),
+      radial-gradient(
+        circle at 18% 110%,
+        rgba(189, 178, 255, 0.12),
+        transparent 32%
+      );
+  }
+}
+
+.dark .app-canvas {
+  background-image:
+    radial-gradient(
+      circle at 78% -8%,
+      rgba(58, 134, 255, 0.16),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 18% 110%,
+      rgba(189, 178, 255, 0.08),
+      transparent 32%
+    );
+}
