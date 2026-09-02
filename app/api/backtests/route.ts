@@ -1,8 +1,5 @@
 import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 
-const textValue = (value: unknown, fallback: string) =>
-  typeof value === 'string' && value.trim() ? value : fallback;
-
 const choices = {
   structureBreakTiming: ['inside-london', 'outside-london'],
   entryHalf: ['first-half', 'second-half'],
@@ -96,8 +93,8 @@ export async function POST(request: Request) {
   const { error } = await supabase.from('backtests').insert({
     id,
     user_id: user.id,
-    account_id: textValue(body.accountId, ''),
-    instrument: textValue(body.instrument, 'Unknown'),
+    account_id: null,
+    instrument: 'GBPUSD',
     assumptions: body.assumptions || {},
     variables: cleanVariables(body.variables),
     results: body.results || {},

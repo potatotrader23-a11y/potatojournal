@@ -431,7 +431,7 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               activeId={activeId}
             />
           )}
-          {view === 'backtesting' && <Backtesting accounts={accounts} />}{' '}
+          {view === 'backtesting' && <Backtesting />}{' '}
           {view === 'journal' && <Journal />}{' '}
           {view === 'analytics' && <Analytics accounts={accounts} />}
         </div>
@@ -1006,10 +1006,9 @@ function TinyStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
+function Backtesting() {
   const [form, setForm] = useState({
-    accountId: accounts[0].id,
-    instrument: 'NQ',
+    startingBalance: 10000,
     trades: 100,
     winRate: 56,
     avgWin: 1.8,
@@ -1041,12 +1040,11 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
   }>(null);
   const run = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const a = accounts.find((x) => x.id === form.accountId) ?? accounts[0],
-      expectancy =
+    const expectancy =
         (form.winRate / 100) * form.avgWin -
         (1 - form.winRate / 100) * form.avgLoss,
       netR = expectancy * form.trades,
-      profit = a.balance * (form.risk / 100) * netR,
+      profit = form.startingBalance * (form.risk / 100) * netR,
       curve = Array.from(
         { length: 24 },
         (_, i) =>
@@ -1058,7 +1056,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
       expectancy,
       netR,
       profit,
-      final: a.balance + profit,
+      final: form.startingBalance + profit,
       drawdown: Math.min(
         28,
         (100 - form.winRate) * form.risk * 0.19 +
@@ -1073,9 +1071,9 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          accountId: form.accountId,
-          instrument: form.instrument,
+          instrument: 'GBPUSD',
           assumptions: {
+            startingBalance: form.startingBalance,
             trades: form.trades,
             winRate: form.winRate,
             avgWin: form.avgWin,
@@ -1092,41 +1090,35 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
       <PageHeading
         eyebrow="Strategy laboratory"
         title="Backtesting"
-        description="Pressure-test a setup against an account’s actual balance and risk model before trading it live."
+        description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
       />
       <div className="grid gap-4 2xl:grid-cols-[minmax(540px,.95fr)_minmax(0,1.05fr)]">
         <form onSubmit={run} className="surface p-5">
           <h2 className="text-sm font-semibold">Test assumptions</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Results stay separate from your live journal.
+            Backtest-only data. Nothing here changes a trading account.
           </p>
           <div className="mt-5 space-y-4">
-            <Field label="Trading account">
-              <Select
-                value={form.accountId}
-                onValueChange={(v) => v && setForm({ ...form, accountId: v })}
-              >
-                <SelectTrigger className="h-10 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Instrument">
-              <Input
-                className="h-10"
-                value={form.instrument}
-                onChange={(e) =>
-                  setForm({ ...form, instrument: e.target.value })
-                }
-              />
-            </Field>
+            <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
+                  Backtest market
+                </p>
+                <p className="mt-1 text-lg font-semibold tracking-tight">
+                  GBPUSD
+                </p>
+              </div>
+              <Badge className="bg-primary/12 text-primary" variant="secondary">
+                Fixed pair
+              </Badge>
+            </div>
+            <NumberField
+              label="Backtest starting balance"
+              value={form.startingBalance}
+              onChange={(startingBalance) =>
+                setForm({ ...form, startingBalance })
+              }
+            />
             <div className="grid grid-cols-2 gap-3">
               <NumberField
                 label="Number of trades"
@@ -1183,7 +1175,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
         </form>
         <BacktestResult
           result={result}
-          instrument={form.instrument}
+          instrument="GBPUSD"
           variables={form.variables}
           onSave={save}
         />
