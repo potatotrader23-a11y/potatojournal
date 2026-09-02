@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { type SyntheticEvent, useEffect, useState } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -12,6 +12,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   Library,
+  LogOut,
   Menu,
   Moon,
   MoreHorizontal,
@@ -28,6 +29,7 @@ import {
   TrendingUp,
   WalletCards,
 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -171,7 +173,7 @@ const money = (value: number, currency = 'USD') =>
     maximumFractionDigits: 0,
   }).format(value);
 
-export default function TradingDashboard() {
+export default function TradingDashboard({ userEmail }: { userEmail: string }) {
   const [view, setView] = useState<View>('overview');
   const [accounts, setAccounts] = useState(seedAccounts);
   const [activeId, setActiveId] = useState('main');
@@ -187,6 +189,11 @@ export default function TradingDashboard() {
       document.documentElement.classList.toggle('dark', !next);
       return next;
     });
+  };
+  const signOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.assign('/login');
   };
 
   useEffect(() => {
@@ -302,6 +309,18 @@ export default function TradingDashboard() {
                     {item.label}
                   </Button>
                 ))}
+                <div className="mt-5 border-t border-border pt-4">
+                  <p className="truncate px-3 text-xs text-muted-foreground">
+                    {userEmail}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    className="mt-1 h-10 w-full justify-start gap-3"
+                    onClick={signOut}
+                  >
+                    <LogOut /> Sign out
+                  </Button>
+                </div>
               </div>
             </SheetContent>
           </Sheet>
@@ -355,9 +374,20 @@ export default function TradingDashboard() {
               <span className="hidden sm:inline">Log trade</span>
               <span className="sm:hidden">Trade</span>
             </Button>
-            <div className="ml-1 hidden size-9 place-items-center rounded-full border border-border bg-secondary/15 text-xs font-semibold sm:grid">
-              PT
-            </div>
+            <button
+              type="button"
+              onClick={signOut}
+              className="group ml-1 hidden h-10 items-center gap-2 rounded-xl border border-border bg-secondary/10 px-2.5 text-left transition hover:bg-secondary/20 sm:flex"
+              title={`Signed in as ${userEmail}. Click to sign out.`}
+            >
+              <span className="grid size-6 place-items-center rounded-full bg-secondary/25 text-[10px] font-semibold">
+                {userEmail.slice(0, 2).toUpperCase()}
+              </span>
+              <span className="max-w-24 truncate text-[11px] text-muted-foreground lg:max-w-32">
+                {userEmail}
+              </span>
+              <LogOut className="size-3.5 text-muted-foreground group-hover:text-foreground" />
+            </button>
           </div>
         </header>
         <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
@@ -973,7 +1003,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
     drawdown: number;
     curve: number[];
   }>(null);
-  const run = (e: FormEvent) => {
+  const run = (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     const a = accounts.find((x) => x.id === form.accountId) ?? accounts[0],
       expectancy =
@@ -1441,11 +1471,11 @@ function AccountForm({
     dailyLossPercent: editing?.dailyLossPercent ?? 3,
     maxLossPercent: editing?.maxLossPercent ?? 8,
   });
-  const submit = (e: FormEvent) => {
+  const submit = (e: SyntheticEvent<HTMLFormElement>) => {
       e.preventDefault();
       const startingBalance = editing?.startingBalance ?? form.balance;
       onSave({
-        id: editing?.id ?? `acc-${Date.now()}`,
+        id: editing?.id ?? crypto.randomUUID(),
         ...form,
         startingBalance,
         pnl: form.balance - startingBalance,

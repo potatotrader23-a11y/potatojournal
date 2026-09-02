@@ -1,32 +1,56 @@
-import { eq } from 'drizzle-orm';
-import { getDb } from '@/db';
-import { backtests } from '@/db/schema';
+import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 
-const owner = (request: Request) =>
-  request.headers.get('oai-authenticated-user-id') || 'local-preview';
+const textValue = (value: unknown, fallback: string) =>
+  typeof value === 'string' && value.trim() ? value : fallback;
 
-export async function GET(request: Request) {
-  return Response.json(
-    await getDb()
-      .select()
-      .from(backtests)
-      .where(eq(backtests.ownerId, owner(request))),
-  );
+export async function GET() {
+  if (!hasSupabaseEnvironment()) {
+    return Response.json(
+      { error: 'Supabase is not configured' },
+      { status: 503 },
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { data, error } = await supabase
+    .from('backtests')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+  return Response.json(data ?? []);
 }
 
 export async function POST(request: Request) {
+  if (!hasSupabaseEnvironment()) {
+    return Response.json(
+      { error: 'Supabase is not configured' },
+      { status: 503 },
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
   const body = (await request.json()) as Record<string, unknown>;
   const id = crypto.randomUUID();
-  await getDb()
-    .insert(backtests)
-    .values({
-      id,
-      ownerId: owner(request),
-      accountId: String(body.accountId),
-      instrument: String(body.instrument || 'Unknown'),
-      assumptionsJson: JSON.stringify(body.assumptions || {}),
-      resultsJson: JSON.stringify(body.results || {}),
-      createdAt: Date.now(),
-    });
+  const { error } = await supabase.from('backtests').insert({
+    id,
+    user_id: user.id,
+    account_id: textValue(body.accountId, ''),
+    instrument: textValue(body.instrument, 'Unknown'),
+    assumptions: body.assumptions || {},
+    results: body.results || {},
+  });
+
+  if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ id, status: 'saved' });
 }
