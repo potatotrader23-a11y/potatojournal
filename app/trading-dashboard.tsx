@@ -26,12 +26,23 @@ import {
   Sparkles,
   Sun,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
   WalletCards,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -96,8 +107,21 @@ type SavedBacktest = {
   id: string;
   instrument: 'GBPUSD';
   variables: BacktestVariables;
+  resultR: number;
   imageUrl: string | null;
   createdAt: string;
+};
+const defaultBacktestVariables: BacktestVariables = {
+  structureBreakTiming: 'inside-london',
+  entryHalf: 'first-half',
+  maePips: 8,
+  asianPosition: 'break-high',
+  breakoutCandle: 'medium-strong',
+  asianRangePriceAction: 'sideways',
+  imbalance: 'one-candle',
+  insideHigherHighOrLow: true,
+  structureBreakDuringTrade: true,
+  tradeWithinTradingHours: true,
 };
 async function fetchBacktests() {
   const response = await fetch('/api/backtests');
@@ -1017,22 +1041,17 @@ function TinyStat({ label, value }: { label: string; value: string }) {
 }
 
 function Backtesting() {
-  const [variables, setVariables] = useState<BacktestVariables>({
-    structureBreakTiming: 'inside-london',
-    entryHalf: 'first-half',
-    maePips: 8,
-    asianPosition: 'break-high',
-    breakoutCandle: 'medium-strong',
-    asianRangePriceAction: 'sideways',
-    imbalance: 'one-candle',
-    insideHigherHighOrLow: true,
-    structureBreakDuringTrade: true,
-    tradeWithinTradingHours: true,
-  });
+  const [variables, setVariables] = useState<BacktestVariables>(
+    defaultBacktestVariables,
+  );
+  const [resultR, setResultR] = useState(1);
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SavedBacktest | null>(null);
   const [saveState, setSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
@@ -1046,7 +1065,7 @@ function Backtesting() {
 
   useEffect(
     () => () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     },
     [previewUrl],
   );
@@ -1057,28 +1076,65 @@ function Backtesting() {
     try {
       const formData = new FormData();
       formData.set('variables', JSON.stringify(variables));
+      formData.set('resultR', String(resultR));
       if (imageFile) formData.set('image', imageFile);
-      const response = await fetch('/api/backtests', {
-        method: 'POST',
-        body: formData,
-      });
+      if (removeExistingImage) formData.set('removeImage', 'true');
+      const response = await fetch(
+        editingId ? `/api/backtests/${editingId}` : '/api/backtests',
+        {
+          method: editingId ? 'PATCH' : 'POST',
+          body: formData,
+        },
+      );
       if (!response.ok) throw new Error('Unable to save backtest');
       setBacktests(await fetchBacktests());
-      setImageFile(null);
-      setPreviewUrl(null);
+      resetEditor();
       setSaveState('saved');
     } catch {
       setSaveState('error');
     }
   };
 
-  const londonCount = backtests.filter(
-    (item) => item.variables.structureBreakTiming === 'inside-london',
-  ).length;
-  const structureCount = backtests.filter(
-    (item) => item.variables.structureBreakDuringTrade,
-  ).length;
-  const imageCount = backtests.filter((item) => item.imageUrl).length;
+  const resetEditor = () => {
+    setVariables(defaultBacktestVariables);
+    setResultR(1);
+    setImageFile(null);
+    setPreviewUrl(null);
+    setEditingId(null);
+    setRemoveExistingImage(false);
+  };
+  const editBacktest = (item: SavedBacktest) => {
+    setVariables(item.variables);
+    setResultR(item.resultR);
+    setImageFile(null);
+    setPreviewUrl(item.imageUrl);
+    setEditingId(item.id);
+    setRemoveExistingImage(false);
+    setSaveState('idle');
+    document
+      .getElementById('backtest-form')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const deleteBacktest = async () => {
+    if (!deleteTarget) return;
+    try {
+      const response = await fetch(`/api/backtests/${deleteTarget.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Unable to delete backtest');
+      if (editingId === deleteTarget.id) resetEditor();
+      setBacktests((current) =>
+        current.filter((item) => item.id !== deleteTarget.id),
+      );
+      setDeleteTarget(null);
+    } catch {
+      setSaveState('error');
+    }
+  };
+
+  const winCount = backtests.filter((item) => item.resultR > 0).length;
+  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
+  const averageR = backtests.length ? netR / backtests.length : 0;
   const percentage = (count: number) =>
     backtests.length ? `${Math.round((count / backtests.length) * 100)}%` : '—';
 
@@ -1090,17 +1146,38 @@ function Backtesting() {
         description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
       />
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <BacktestStat label="Saved tests" value={`${backtests.length}`} />
-        <BacktestStat label="Inside London" value={percentage(londonCount)} />
-        <BacktestStat label="BOS in trade" value={percentage(structureCount)} />
-        <BacktestStat label="Charts attached" value={`${imageCount}`} />
+        <BacktestStat label="Total trades" value={`${backtests.length}`} />
+        <BacktestStat label="Win rate" value={percentage(winCount)} />
+        <BacktestStat
+          label="Average RR"
+          value={backtests.length ? `${averageR.toFixed(2)}R` : '—'}
+        />
+        <BacktestStat
+          label="Net result"
+          value={
+            backtests.length
+              ? `${netR >= 0 ? '+' : ''}${netR.toFixed(1)}R`
+              : '—'
+          }
+        />
       </div>
-      <form onSubmit={save} className="surface mx-auto max-w-3xl p-5 sm:p-7">
-        <h2 className="text-sm font-semibold">Log GBPUSD backtest</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Record the setup conditions only. No account statistics or simulated
-          projections.
-        </p>
+      <BacktestEquityCurve backtests={backtests} />
+      <form
+        id="backtest-form"
+        onSubmit={save}
+        className="surface mx-auto mt-5 max-w-3xl scroll-mt-20 p-5 sm:p-7"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">
+              {editingId ? 'Edit GBPUSD backtest' : 'Log GBPUSD backtest'}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Record the setup, RR result, and optional chart.
+            </p>
+          </div>
+          {editingId && <Badge variant="secondary">Editing</Badge>}
+        </div>
         <div className="mt-5 space-y-4">
           <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
             <div>
@@ -1114,6 +1191,21 @@ function Backtesting() {
             <Badge className="bg-primary/12 text-primary" variant="secondary">
               Fixed pair
             </Badge>
+          </div>
+          <div className="border-t border-border pt-5">
+            <NumberField
+              label="RR / trade result"
+              value={resultR}
+              step="0.1"
+              onChange={(next) => {
+                setResultR(next);
+                setSaveState('idle');
+              }}
+            />
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
+              loss.
+            </p>
           </div>
           <div className="border-t border-border pt-5">
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -1168,25 +1260,60 @@ function Backtesting() {
                 const file = event.target.files?.[0] ?? null;
                 setImageFile(file);
                 setPreviewUrl(file ? URL.createObjectURL(file) : null);
+                setRemoveExistingImage(false);
                 setSaveState('idle');
               }}
             />
-          </div>
-          <Button
-            type="submit"
-            className="h-11 w-full rounded-xl"
-            disabled={saveState === 'saving'}
-          >
-            {saveState === 'saving' ? (
-              <Activity className="animate-spin" />
-            ) : (
-              <Check />
+            {previewUrl && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 text-destructive"
+                onClick={() => {
+                  setImageFile(null);
+                  setPreviewUrl(null);
+                  setRemoveExistingImage(true);
+                }}
+              >
+                <Trash2 /> Remove chart
+              </Button>
             )}
-            {saveState === 'saving' ? 'Saving…' : 'Save backtest'}
-          </Button>
+          </div>
+          <div className="flex gap-2">
+            {editingId && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-1 rounded-xl"
+                onClick={() => {
+                  resetEditor();
+                  setSaveState('idle');
+                }}
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="submit"
+              className="h-11 flex-1 rounded-xl"
+              disabled={saveState === 'saving'}
+            >
+              {saveState === 'saving' ? (
+                <Activity className="animate-spin" />
+              ) : (
+                <Check />
+              )}
+              {saveState === 'saving'
+                ? 'Saving…'
+                : editingId
+                  ? 'Update backtest'
+                  : 'Save backtest'}
+            </Button>
+          </div>
           {saveState === 'saved' && (
             <p className="text-center text-xs font-medium text-emerald-500">
-              GBPUSD backtest saved.
+              GBPUSD backtest saved successfully.
             </p>
           )}
           {saveState === 'error' && (
@@ -1242,6 +1369,19 @@ function Backtesting() {
                     </span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Badge
+                      className={
+                        item.resultR > 0
+                          ? 'bg-emerald-500/10 text-emerald-500'
+                          : item.resultR < 0
+                            ? 'bg-destructive/10 text-destructive'
+                            : ''
+                      }
+                      variant="secondary"
+                    >
+                      {item.resultR > 0 ? '+' : ''}
+                      {item.resultR}R
+                    </Badge>
                     <Badge variant="secondary">
                       {item.variables.structureBreakTiming === 'inside-london'
                         ? 'Inside London'
@@ -1259,13 +1399,118 @@ function Backtesting() {
                       {formatBacktestValue(item.variables.breakoutCandle)}
                     </Badge>
                   </div>
+                  <div className="mt-4 flex gap-2 border-t border-border pt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => editBacktest(item)}
+                    >
+                      <Pencil /> Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setDeleteTarget(item)}
+                    >
+                      <Trash2 /> Delete
+                    </Button>
+                  </div>
                 </div>
               </article>
             ))}
           </div>
         )}
       </section>
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this backtest?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the GBPUSD entry and its chart image.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={deleteBacktest}>
+              Delete backtest
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  );
+}
+function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
+  const chronological = [...backtests].sort(
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const curve = chronological.reduce<number[]>(
+    (points, item) => [...points, points.at(-1)! + item.resultR],
+    [0],
+  );
+  const net = curve.at(-1) ?? 0;
+  return (
+    <article className="surface overflow-hidden p-5 sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold">Backtest equity curve</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Cumulative RR across saved GBPUSD trades.
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={net >= 0 ? 'text-emerald-500' : 'text-destructive'}
+        >
+          {net > 0 ? '+' : ''}
+          {net.toFixed(1)}R
+        </Badge>
+      </div>
+      <div className="mt-5 h-48 sm:h-56">
+        <svg
+          viewBox="0 0 760 230"
+          className="h-full w-full"
+          preserveAspectRatio="none"
+          aria-label={`Backtest equity curve ending at ${net.toFixed(1)}R`}
+        >
+          <title>Backtest cumulative RR equity curve</title>
+          {[35, 85, 135, 185].map((y) => (
+            <line
+              key={y}
+              x1="0"
+              y1={y}
+              x2="760"
+              y2={y}
+              stroke="currentColor"
+              className="text-border"
+              strokeDasharray="4 6"
+            />
+          ))}
+          <polyline
+            points={seriesPoints(curve)}
+            fill="none"
+            stroke="var(--primary)"
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+      <div className="flex justify-between text-[9px] text-muted-foreground">
+        <span>Start</span>
+        <span>
+          {backtests.length ? `Trade ${backtests.length}` : 'No trades yet'}
+        </span>
+      </div>
+    </article>
   );
 }
 function BacktestStat({ label, value }: { label: string; value: string }) {
