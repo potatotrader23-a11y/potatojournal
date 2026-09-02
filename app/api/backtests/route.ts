@@ -1,6 +1,7 @@
 import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 import {
   backtestImagePath,
+  cleanBacktestDate,
   cleanBacktestVariables,
   cleanResultR,
   parseVariables,
@@ -23,7 +24,10 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('backtests')
-    .select('id, instrument, variables, results, image_path, created_at')
+    .select(
+      'id, instrument, variables, results, image_path, backtest_date, created_at',
+    )
+    .order('backtest_date', { ascending: false })
     .order('created_at', { ascending: false });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
@@ -51,6 +55,7 @@ export async function GET() {
           ? Number(row.results.resultR) || 0
           : 0,
       imageUrl: signedImages[index],
+      backtestDate: row.backtest_date,
       createdAt: row.created_at,
     })),
   );
@@ -78,6 +83,9 @@ export async function POST(request: Request) {
   const image = formData.get('image');
   const imageError = validateBacktestImage(image);
   if (imageError) return Response.json({ error: imageError }, { status: 400 });
+  const backtestDate = cleanBacktestDate(formData.get('backtestDate'));
+  if (!backtestDate)
+    return Response.json({ error: 'Invalid backtest date' }, { status: 400 });
 
   const id = crypto.randomUUID();
   let imagePath: string | null = null;
@@ -99,6 +107,7 @@ export async function POST(request: Request) {
     assumptions: {},
     variables: cleanBacktestVariables(variables),
     results: { resultR: cleanResultR(formData.get('resultR')) },
+    backtest_date: backtestDate,
     image_path: imagePath,
   });
 

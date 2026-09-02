@@ -108,9 +108,12 @@ type SavedBacktest = {
   instrument: 'GBPUSD';
   variables: BacktestVariables;
   resultR: number;
+  backtestDate: string;
   imageUrl: string | null;
   createdAt: string;
 };
+const manilaToday = () =>
+  new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const defaultBacktestVariables: BacktestVariables = {
   structureBreakTiming: 'inside-london',
   entryHalf: 'first-half',
@@ -1045,6 +1048,7 @@ function Backtesting() {
     defaultBacktestVariables,
   );
   const [resultRInput, setResultRInput] = useState('1');
+  const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -1086,6 +1090,7 @@ function Backtesting() {
       const formData = new FormData();
       formData.set('variables', JSON.stringify(variables));
       formData.set('resultR', resultRInput);
+      formData.set('backtestDate', backtestDate);
       if (imageFile) formData.set('image', imageFile);
       if (removeExistingImage) formData.set('removeImage', 'true');
       const response = await fetch(
@@ -1107,6 +1112,7 @@ function Backtesting() {
   const resetEditor = () => {
     setVariables(defaultBacktestVariables);
     setResultRInput('1');
+    setBacktestDate(manilaToday());
     setImageFile(null);
     setPreviewUrl(null);
     setEditingId(null);
@@ -1115,6 +1121,7 @@ function Backtesting() {
   const editBacktest = (item: SavedBacktest) => {
     setVariables(item.variables);
     setResultRInput(String(item.resultR));
+    setBacktestDate(item.backtestDate);
     setImageFile(null);
     setPreviewUrl(item.imageUrl);
     setEditingId(item.id);
@@ -1200,6 +1207,19 @@ function Backtesting() {
             <Badge className="bg-primary/12 text-primary" variant="secondary">
               Fixed pair
             </Badge>
+          </div>
+          <div className="border-t border-border pt-5">
+            <Field label="Backtest date">
+              <Input
+                type="date"
+                required
+                value={backtestDate}
+                onChange={(event) => {
+                  setBacktestDate(event.target.value);
+                  setSaveState('idle');
+                }}
+              />
+            </Field>
           </div>
           <div className="border-t border-border pt-5">
             <SignedRField
@@ -1372,7 +1392,7 @@ function Backtesting() {
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold">GBPUSD</p>
                     <span className="text-[10px] text-muted-foreground">
-                      {new Date(item.createdAt).toLocaleDateString()}
+                      {formatBacktestDate(item.backtestDate)}
                     </span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1457,7 +1477,9 @@ function Backtesting() {
 }
 function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
   const chronological = [...backtests].sort(
-    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    (a, b) =>
+      a.backtestDate.localeCompare(b.backtestDate) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
   );
   const curve = chronological.reduce<number[]>(
     (points, item) => [...points, points.at(-1)! + item.resultR],
@@ -1535,6 +1557,14 @@ function formatBacktestValue(value: string) {
     .split('-')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+function formatBacktestDate(value: string) {
+  return new Date(`${value}T00:00:00Z`).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 function BacktestVariableFields({
   value,

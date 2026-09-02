@@ -1,5 +1,6 @@
 import {
   backtestImagePath,
+  cleanBacktestDate,
   cleanBacktestVariables,
   cleanResultR,
   parseVariables,
@@ -49,6 +50,9 @@ export async function PATCH(
   const image = formData.get('image');
   const imageError = validateBacktestImage(image);
   if (imageError) return Response.json({ error: imageError }, { status: 400 });
+  const backtestDate = cleanBacktestDate(formData.get('backtestDate'));
+  if (!backtestDate)
+    return Response.json({ error: 'Invalid backtest date' }, { status: 400 });
 
   let nextImagePath = context.backtest.image_path as string | null;
   if (formData.get('removeImage') === 'true') nextImagePath = null;
@@ -68,6 +72,7 @@ export async function PATCH(
     .update({
       variables: cleanBacktestVariables(variables),
       results: { resultR: cleanResultR(formData.get('resultR')) },
+      backtest_date: backtestDate,
       image_path: nextImagePath,
     })
     .eq('id', id)

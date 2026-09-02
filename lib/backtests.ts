@@ -60,6 +60,17 @@ export function cleanResultR(value: FormDataEntryValue | null) {
   return Number.isFinite(result) ? Math.max(-100, Math.min(100, result)) : 0;
 }
 
+export function cleanBacktestDate(value: FormDataEntryValue | null) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== value
+    ? null
+    : value;
+}
+
 export const acceptedBacktestImageTypes = new Set([
   'image/jpeg',
   'image/png',
