@@ -1,7 +1,5 @@
 export const backtestChoices = {
-  structureBreakTiming: ['inside-london', 'outside-london'],
-  entryHalf: ['first-half', 'second-half'],
-  asianPosition: ['break-high', 'break-low', 'inside-session'],
+  setupType: ['continuation', 'breakout', 'reversal'],
   breakoutCandle: [
     'large-strong',
     'large-wicky',
@@ -30,19 +28,19 @@ export function cleanBacktestVariables(value: unknown) {
     const candidate = Number(input[key]);
     return Number.isFinite(candidate) ? candidate : 0;
   };
-  const boolean = (key: string) => input[key] === true;
+  const entryTime =
+    typeof input.entryTime === 'string' &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(input.entryTime)
+      ? input.entryTime
+      : '15:00';
 
   return {
-    structureBreakTiming: pick('structureBreakTiming'),
-    entryHalf: pick('entryHalf'),
+    entryTime,
+    setupType: pick('setupType'),
     maePips: Math.max(0, number('maePips')),
-    asianPosition: pick('asianPosition'),
     breakoutCandle: pick('breakoutCandle'),
     asianRangePriceAction: pick('asianRangePriceAction'),
     imbalance: pick('imbalance'),
-    insideHigherHighOrLow: boolean('insideHigherHighOrLow'),
-    structureBreakDuringTrade: boolean('structureBreakDuringTrade'),
-    tradeWithinTradingHours: boolean('tradeWithinTradingHours'),
   };
 }
 

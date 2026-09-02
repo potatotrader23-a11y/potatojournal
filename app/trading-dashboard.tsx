@@ -86,10 +86,9 @@ type TradingAccount = {
   equity: number[];
 };
 type BacktestVariables = {
-  structureBreakTiming: 'inside-london' | 'outside-london';
-  entryHalf: 'first-half' | 'second-half';
+  entryTime: string;
+  setupType: 'continuation' | 'breakout' | 'reversal';
   maePips: number;
-  asianPosition: 'break-high' | 'break-low' | 'inside-session';
   breakoutCandle:
     | 'large-strong'
     | 'large-wicky'
@@ -99,9 +98,6 @@ type BacktestVariables = {
     | 'small-wicky';
   asianRangePriceAction: 'downtrend' | 'uptrend' | 'sideways' | 'choppy';
   imbalance: 'one-candle' | 'two-candle' | 'three-candle' | 'deep-retracement';
-  insideHigherHighOrLow: boolean;
-  structureBreakDuringTrade: boolean;
-  tradeWithinTradingHours: boolean;
 };
 type SavedBacktest = {
   id: string;
@@ -115,16 +111,12 @@ type SavedBacktest = {
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const defaultBacktestVariables: BacktestVariables = {
-  structureBreakTiming: 'inside-london',
-  entryHalf: 'first-half',
+  entryTime: '15:00',
+  setupType: 'continuation',
   maePips: 8,
-  asianPosition: 'break-high',
   breakoutCandle: 'medium-strong',
   asianRangePriceAction: 'sideways',
   imbalance: 'one-candle',
-  insideHigherHighOrLow: true,
-  structureBreakDuringTrade: true,
-  tradeWithinTradingHours: true,
 };
 async function fetchBacktests() {
   const response = await fetch('/api/backtests');
@@ -1410,14 +1402,10 @@ function Backtesting() {
                       {item.resultR}R
                     </Badge>
                     <Badge variant="secondary">
-                      {item.variables.structureBreakTiming === 'inside-london'
-                        ? 'Inside London'
-                        : 'Outside London'}
+                      {formatBacktestValue(item.variables.setupType)}
                     </Badge>
                     <Badge variant="secondary">
-                      {item.variables.entryHalf === 'first-half'
-                        ? '1st half'
-                        : '2nd half'}
+                      {item.variables.entryTime}
                     </Badge>
                     <Badge variant="secondary">
                       MAE {item.variables.maePips} pips
@@ -1580,39 +1568,32 @@ function BacktestVariableFields({
 
   return (
     <div className="space-y-5">
+      <Field label="Time">
+        <Input
+          type="time"
+          step={60}
+          value={value.entryTime}
+          onChange={(event) => update('entryTime', event.target.value)}
+        />
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          24-hour format, for example 15:00, 15:03, or 18:00.
+        </p>
+      </Field>
       <ChoiceField
-        label="Break of structure"
-        value={value.structureBreakTiming}
+        label="Setup"
+        value={value.setupType}
         options={[
-          ['inside-london', 'Inside London'],
-          ['outside-london', 'Outside London'],
+          ['continuation', 'Continuation'],
+          ['breakout', 'Breakout'],
+          ['reversal', 'Reversal'],
         ]}
-        onChange={(next) => update('structureBreakTiming', next)}
-      />
-      <ChoiceField
-        label="Entry timing"
-        value={value.entryHalf}
-        options={[
-          ['first-half', '1st half'],
-          ['second-half', '2nd half'],
-        ]}
-        onChange={(next) => update('entryHalf', next)}
+        onChange={(next) => update('setupType', next)}
       />
       <NumberField
         label="MAE (pips)"
         value={value.maePips}
         step="0.1"
         onChange={(next) => update('maePips', Math.max(0, next))}
-      />
-      <ChoiceField
-        label="Trade relative to Asian high / low"
-        value={value.asianPosition}
-        options={[
-          ['break-high', 'Break on high'],
-          ['break-low', 'Break on low'],
-          ['inside-session', 'Inside Asian session'],
-        ]}
-        onChange={(next) => update('asianPosition', next)}
       />
       <ChoiceField
         label="Breakout candle"
@@ -1651,21 +1632,6 @@ function BacktestVariableFields({
           ['deep-retracement', 'Deep retracement'],
         ]}
         onChange={(next) => update('imbalance', next)}
-      />
-      <BooleanChoice
-        label="Is the trade inside a higher high or higher low?"
-        value={value.insideHigherHighOrLow}
-        onChange={(next) => update('insideHigherHighOrLow', next)}
-      />
-      <BooleanChoice
-        label="Break of structure during entry or trade?"
-        value={value.structureBreakDuringTrade}
-        onChange={(next) => update('structureBreakDuringTrade', next)}
-      />
-      <BooleanChoice
-        label="Trade completed within trading hours?"
-        value={value.tradeWithinTradingHours}
-        onChange={(next) => update('tradeWithinTradingHours', next)}
       />
     </div>
   );
@@ -1706,27 +1672,6 @@ function ChoiceField<T extends string>({
         ))}
       </div>
     </fieldset>
-  );
-}
-function BooleanChoice({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <ChoiceField
-      label={label}
-      value={value ? 'yes' : 'no'}
-      options={[
-        ['yes', 'Yes'],
-        ['no', 'No'],
-      ]}
-      onChange={(next) => onChange(next === 'yes')}
-    />
   );
 }
 function Journal() {

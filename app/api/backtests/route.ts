@@ -47,7 +47,7 @@ export async function GET() {
     rows.map((row, index) => ({
       id: row.id,
       instrument: row.instrument,
-      variables: row.variables,
+      variables: cleanBacktestVariables(row.variables),
       resultR:
         row.results &&
         typeof row.results === 'object' &&
