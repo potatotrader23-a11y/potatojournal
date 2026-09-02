@@ -1159,7 +1159,7 @@ function Backtesting() {
       <PageHeading
         eyebrow="Strategy laboratory"
         title="Backtesting"
-        description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
+        description="A dedicated GBPUSD London Open research workspace, completely separate from your live trading accounts."
       />
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <BacktestStat label="Total trades" value={`${backtests.length}`} />
@@ -1207,6 +1207,23 @@ function Backtesting() {
             <Badge className="bg-primary/12 text-primary" variant="secondary">
               Fixed pair
             </Badge>
+          </div>
+          <div className="rounded-xl border border-secondary/30 bg-secondary/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
+                  London Open definition
+                </p>
+                <p className="mt-1 text-sm font-semibold">
+                  08:00–10:00 Europe/London
+                </p>
+              </div>
+              <Badge variant="outline">2-hour window</Badge>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+              Manila time: 15:00–17:00 during UK summer time, or 16:00–18:00
+              during UK winter time.
+            </p>
           </div>
           <div className="border-t border-border pt-5">
             <Field label="Backtest date">
@@ -1411,8 +1428,8 @@ function Backtesting() {
                     </Badge>
                     <Badge variant="secondary">
                       {item.variables.structureBreakTiming === 'inside-london'
-                        ? 'Inside London'
-                        : 'Outside London'}
+                        ? 'Inside London Open'
+                        : 'Outside London Open'}
                     </Badge>
                     <Badge variant="secondary">
                       {item.variables.entryHalf === 'first-half'
@@ -1581,11 +1598,11 @@ function BacktestVariableFields({
   return (
     <div className="space-y-5">
       <ChoiceField
-        label="Break of structure"
+        label="Break of structure relative to London Open"
         value={value.structureBreakTiming}
         options={[
-          ['inside-london', 'Inside London'],
-          ['outside-london', 'Outside London'],
+          ['inside-london', 'Inside London Open'],
+          ['outside-london', 'Outside London Open'],
         ]}
         onChange={(next) => update('structureBreakTiming', next)}
       />
