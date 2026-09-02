@@ -47,6 +47,7 @@ const cleanVariables = (value: unknown) => {
     breakoutCandle: pick('breakoutCandle'),
     asianRangePriceAction: pick('asianRangePriceAction'),
     imbalance: pick('imbalance'),
+    insideHigherHighOrLow: boolean('insideHigherHighOrLow'),
     structureBreakDuringTrade: boolean('structureBreakDuringTrade'),
     skipIfGapUntagged: boolean('skipIfGapUntagged'),
     tradeWithinTradingHours: boolean('tradeWithinTradingHours'),

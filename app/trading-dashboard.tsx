@@ -89,6 +89,7 @@ type BacktestVariables = {
     | 'small-wicky';
   asianRangePriceAction: 'downtrend' | 'uptrend' | 'sideways' | 'choppy';
   imbalance: 'one-candle' | 'two-candle' | 'three-candle' | 'deep-retracement';
+  insideHigherHighOrLow: boolean;
   structureBreakDuringTrade: boolean;
   skipIfGapUntagged: boolean;
   tradeWithinTradingHours: boolean;
@@ -1024,6 +1025,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
       breakoutCandle: 'medium-strong',
       asianRangePriceAction: 'sideways',
       imbalance: 'one-candle',
+      insideHigherHighOrLow: true,
       structureBreakDuringTrade: true,
       skipIfGapUntagged: true,
       tradeWithinTradingHours: true,
@@ -1289,6 +1291,11 @@ function BacktestVariableFields({
         onChange={(next) => update('imbalance', next)}
       />
       <BooleanChoice
+        label="Is the trade inside a higher high or higher low?"
+        value={value.insideHigherHighOrLow}
+        onChange={(next) => update('insideHigherHighOrLow', next)}
+      />
+      <BooleanChoice
         label="Break of structure during entry or trade?"
         value={value.structureBreakDuringTrade}
         onChange={(next) => update('structureBreakDuringTrade', next)}
@@ -1454,6 +1461,9 @@ function BacktestResult({
             variables.breakoutCandle.replace('-', ' '),
             variables.asianRangePriceAction,
             variables.imbalance.replace('-', ' '),
+            variables.insideHigherHighOrLow
+              ? 'Inside higher high / low'
+              : 'Outside higher high / low',
             `${variables.maePips} pip MAE`,
             `${variables.sessionCloseR}R at close`,
           ].map((item) => (
