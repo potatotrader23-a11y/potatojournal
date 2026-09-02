@@ -3,6 +3,54 @@ import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 const textValue = (value: unknown, fallback: string) =>
   typeof value === 'string' && value.trim() ? value : fallback;
 
+const choices = {
+  structureBreakTiming: ['inside-london', 'outside-london'],
+  entryHalf: ['first-half', 'second-half'],
+  asianPosition: ['break-high', 'break-low', 'inside-session'],
+  breakoutCandle: [
+    'large-strong',
+    'large-wicky',
+    'medium-strong',
+    'medium-wicky',
+    'small-strong',
+    'small-wicky',
+  ],
+  asianRangePriceAction: ['downtrend', 'uptrend', 'sideways', 'choppy'],
+} as const;
+
+const cleanVariables = (value: unknown) => {
+  const input =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  const pick = (key: keyof typeof choices) => {
+    const candidate = input[key];
+    return typeof candidate === 'string' &&
+      (choices[key] as readonly string[]).includes(candidate)
+      ? candidate
+      : choices[key][0];
+  };
+  const number = (key: string) => {
+    const candidate = Number(input[key]);
+    return Number.isFinite(candidate) ? candidate : 0;
+  };
+  const boolean = (key: string) => input[key] === true;
+
+  return {
+    structureBreakTiming: pick('structureBreakTiming'),
+    entryHalf: pick('entryHalf'),
+    closeAfterSession: boolean('closeAfterSession'),
+    sessionCloseR: number('sessionCloseR'),
+    maePips: Math.max(0, number('maePips')),
+    asianPosition: pick('asianPosition'),
+    breakoutCandle: pick('breakoutCandle'),
+    asianRangePriceAction: pick('asianRangePriceAction'),
+    structureBreakDuringTrade: boolean('structureBreakDuringTrade'),
+    skipIfGapUntagged: boolean('skipIfGapUntagged'),
+    tradeWithinTradingHours: boolean('tradeWithinTradingHours'),
+  };
+};
+
 export async function GET() {
   if (!hasSupabaseEnvironment()) {
     return Response.json(
@@ -48,6 +96,7 @@ export async function POST(request: Request) {
     account_id: textValue(body.accountId, ''),
     instrument: textValue(body.instrument, 'Unknown'),
     assumptions: body.assumptions || {},
+    variables: cleanVariables(body.variables),
     results: body.results || {},
   });
 

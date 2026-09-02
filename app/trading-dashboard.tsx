@@ -73,6 +73,25 @@ type TradingAccount = {
   pnl: number;
   equity: number[];
 };
+type BacktestVariables = {
+  structureBreakTiming: 'inside-london' | 'outside-london';
+  entryHalf: 'first-half' | 'second-half';
+  closeAfterSession: boolean;
+  sessionCloseR: number;
+  maePips: number;
+  asianPosition: 'break-high' | 'break-low' | 'inside-session';
+  breakoutCandle:
+    | 'large-strong'
+    | 'large-wicky'
+    | 'medium-strong'
+    | 'medium-wicky'
+    | 'small-strong'
+    | 'small-wicky';
+  asianRangePriceAction: 'downtrend' | 'uptrend' | 'sideways' | 'choppy';
+  structureBreakDuringTrade: boolean;
+  skipIfGapUntagged: boolean;
+  tradeWithinTradingHours: boolean;
+};
 
 const seedAccounts: TradingAccount[] = [
   {
@@ -994,6 +1013,19 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
     avgWin: 1.8,
     avgLoss: 1,
     risk: 0.5,
+    variables: {
+      structureBreakTiming: 'inside-london',
+      entryHalf: 'first-half',
+      closeAfterSession: true,
+      sessionCloseR: 1.5,
+      maePips: 8,
+      asianPosition: 'break-high',
+      breakoutCandle: 'medium-strong',
+      asianRangePriceAction: 'sideways',
+      structureBreakDuringTrade: true,
+      skipIfGapUntagged: true,
+      tradeWithinTradingHours: true,
+    } as BacktestVariables,
   });
   const [result, setResult] = useState<null | {
     expectancy: number;
@@ -1039,7 +1071,14 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
         body: JSON.stringify({
           accountId: form.accountId,
           instrument: form.instrument,
-          assumptions: form,
+          assumptions: {
+            trades: form.trades,
+            winRate: form.winRate,
+            avgWin: form.avgWin,
+            avgLoss: form.avgLoss,
+            risk: form.risk,
+          },
+          variables: form.variables,
           results: result,
         }),
       }).catch(() => undefined);
@@ -1051,7 +1090,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
         title="Backtesting"
         description="Pressure-test a setup against an account’s actual balance and risk model before trading it live."
       />
-      <div className="grid gap-4 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(540px,.95fr)_minmax(0,1.05fr)]">
         <form onSubmit={run} className="surface p-5">
           <h2 className="text-sm font-semibold">Test assumptions</h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1116,6 +1155,23 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
               step="0.1"
               onChange={(risk) => setForm({ ...form, risk })}
             />
+            <div className="border-t border-border pt-5">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Setup variables</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Capture the session conditions behind this result.
+                  </p>
+                </div>
+                <Badge variant="outline" className="shrink-0 text-[9px]">
+                  Study profile
+                </Badge>
+              </div>
+              <BacktestVariableFields
+                value={form.variables}
+                onChange={(variables) => setForm({ ...form, variables })}
+              />
+            </div>
             <Button type="submit" className="h-11 w-full rounded-xl">
               <FlaskConical /> Run backtest
             </Button>
@@ -1124,15 +1180,181 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
         <BacktestResult
           result={result}
           instrument={form.instrument}
+          variables={form.variables}
           onSave={save}
         />
       </div>
     </>
   );
 }
+function BacktestVariableFields({
+  value,
+  onChange,
+}: {
+  value: BacktestVariables;
+  onChange: (value: BacktestVariables) => void;
+}) {
+  const update = <K extends keyof BacktestVariables>(
+    key: K,
+    next: BacktestVariables[K],
+  ) => onChange({ ...value, [key]: next });
+
+  return (
+    <div className="space-y-5">
+      <ChoiceField
+        label="Break of structure"
+        value={value.structureBreakTiming}
+        options={[
+          ['inside-london', 'Inside London'],
+          ['outside-london', 'Outside London'],
+        ]}
+        onChange={(next) => update('structureBreakTiming', next)}
+      />
+      <ChoiceField
+        label="Entry timing"
+        value={value.entryHalf}
+        options={[
+          ['first-half', '1st half'],
+          ['second-half', '2nd half'],
+        ]}
+        onChange={(next) => update('entryHalf', next)}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <BooleanChoice
+          label="Close after session?"
+          value={value.closeAfterSession}
+          onChange={(next) => update('closeAfterSession', next)}
+        />
+        <NumberField
+          label="R at session close"
+          value={value.sessionCloseR}
+          step="0.1"
+          onChange={(next) => update('sessionCloseR', next)}
+        />
+      </div>
+      <NumberField
+        label="MAE (pips)"
+        value={value.maePips}
+        step="0.1"
+        onChange={(next) => update('maePips', Math.max(0, next))}
+      />
+      <ChoiceField
+        label="Trade relative to Asian high / low"
+        value={value.asianPosition}
+        options={[
+          ['break-high', 'Break on high'],
+          ['break-low', 'Break on low'],
+          ['inside-session', 'Inside Asian session'],
+        ]}
+        onChange={(next) => update('asianPosition', next)}
+      />
+      <ChoiceField
+        label="Breakout candle"
+        value={value.breakoutCandle}
+        columns={2}
+        options={[
+          ['large-strong', 'Large Strong'],
+          ['large-wicky', 'Large Wicky'],
+          ['medium-strong', 'Medium Strong'],
+          ['medium-wicky', 'Medium Wicky'],
+          ['small-strong', 'Small Strong'],
+          ['small-wicky', 'Small Wicky'],
+        ]}
+        onChange={(next) => update('breakoutCandle', next)}
+      />
+      <ChoiceField
+        label="Asian range price action"
+        value={value.asianRangePriceAction}
+        columns={2}
+        options={[
+          ['downtrend', 'Downtrend'],
+          ['uptrend', 'Uptrend'],
+          ['sideways', 'Sideways'],
+          ['choppy', 'Choppy'],
+        ]}
+        onChange={(next) => update('asianRangePriceAction', next)}
+      />
+      <BooleanChoice
+        label="Break of structure during entry or trade?"
+        value={value.structureBreakDuringTrade}
+        onChange={(next) => update('structureBreakDuringTrade', next)}
+      />
+      <BooleanChoice
+        label="Skip if an Asian-session gap is not tagged?"
+        value={value.skipIfGapUntagged}
+        onChange={(next) => update('skipIfGapUntagged', next)}
+      />
+      <BooleanChoice
+        label="Trade completed within trading hours?"
+        value={value.tradeWithinTradingHours}
+        onChange={(next) => update('tradeWithinTradingHours', next)}
+      />
+    </div>
+  );
+}
+function ChoiceField<T extends string>({
+  label,
+  value,
+  options,
+  columns,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly (readonly [T, string])[];
+  columns?: 2;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <fieldset>
+      <legend className="mb-2 text-xs font-medium">{label}</legend>
+      <div
+        className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : 'sm:grid-cols-2'}`}
+      >
+        {options.map(([option, text]) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={value === option}
+            onClick={() => onChange(option)}
+            className={`min-h-10 rounded-xl border px-3 py-2 text-left text-xs transition ${
+              value === option
+                ? 'border-primary/45 bg-primary/10 font-medium text-primary'
+                : 'border-border bg-card text-muted-foreground hover:border-primary/25 hover:text-foreground'
+            }`}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+function BooleanChoice({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <ChoiceField
+      label={label}
+      value={value ? 'yes' : 'no'}
+      options={[
+        ['yes', 'Yes'],
+        ['no', 'No'],
+      ]}
+      onChange={(next) => onChange(next === 'yes')}
+    />
+  );
+}
 function BacktestResult({
   result,
   instrument,
+  variables,
   onSave,
 }: {
   result: null | {
@@ -1144,6 +1366,7 @@ function BacktestResult({
     curve: number[];
   };
   instrument: string;
+  variables: BacktestVariables;
   onSave: () => void;
 }) {
   if (!result)
@@ -1201,6 +1424,29 @@ function BacktestResult({
             strokeLinejoin="round"
           />
         </svg>
+      </div>
+      <div className="mt-5">
+        <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Setup profile
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[
+            variables.structureBreakTiming === 'inside-london'
+              ? 'BOS inside London'
+              : 'BOS outside London',
+            variables.entryHalf === 'first-half'
+              ? '1st-half entry'
+              : '2nd-half entry',
+            variables.breakoutCandle.replace('-', ' '),
+            variables.asianRangePriceAction,
+            `${variables.maePips} pip MAE`,
+            `${variables.sessionCloseR}R at close`,
+          ].map((item) => (
+            <Badge key={item} variant="outline" className="capitalize">
+              {item}
+            </Badge>
+          ))}
+        </div>
       </div>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary/[.06] p-4">
         <div>
