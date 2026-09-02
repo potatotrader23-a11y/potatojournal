@@ -38,7 +38,6 @@ const cleanVariables = (value: unknown) => {
     structureBreakTiming: pick('structureBreakTiming'),
     entryHalf: pick('entryHalf'),
     closeAfterSession: boolean('closeAfterSession'),
-    sessionCloseR: number('sessionCloseR'),
     maePips: Math.max(0, number('maePips')),
     asianPosition: pick('asianPosition'),
     breakoutCandle: pick('breakoutCandle'),

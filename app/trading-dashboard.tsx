@@ -76,7 +76,6 @@ type BacktestVariables = {
   structureBreakTiming: 'inside-london' | 'outside-london';
   entryHalf: 'first-half' | 'second-half';
   closeAfterSession: boolean;
-  sessionCloseR: number;
   maePips: number;
   asianPosition: 'break-high' | 'break-low' | 'inside-session';
   breakoutCandle:
@@ -1010,7 +1009,6 @@ function Backtesting() {
     structureBreakTiming: 'inside-london',
     entryHalf: 'first-half',
     closeAfterSession: true,
-    sessionCloseR: 1.5,
     maePips: 8,
     asianPosition: 'break-high',
     breakoutCandle: 'medium-strong',
@@ -1148,19 +1146,11 @@ function BacktestVariableFields({
         ]}
         onChange={(next) => update('entryHalf', next)}
       />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <BooleanChoice
-          label="Close after session?"
-          value={value.closeAfterSession}
-          onChange={(next) => update('closeAfterSession', next)}
-        />
-        <NumberField
-          label="R at session close"
-          value={value.sessionCloseR}
-          step="0.1"
-          onChange={(next) => update('sessionCloseR', next)}
-        />
-      </div>
+      <BooleanChoice
+        label="Close after session?"
+        value={value.closeAfterSession}
+        onChange={(next) => update('closeAfterSession', next)}
+      />
       <NumberField
         label="MAE (pips)"
         value={value.maePips}
