@@ -88,6 +88,7 @@ type BacktestVariables = {
     | 'small-strong'
     | 'small-wicky';
   asianRangePriceAction: 'downtrend' | 'uptrend' | 'sideways' | 'choppy';
+  imbalance: 'one-candle' | 'two-candle' | 'three-candle' | 'deep-retracement';
   structureBreakDuringTrade: boolean;
   skipIfGapUntagged: boolean;
   tradeWithinTradingHours: boolean;
@@ -1022,6 +1023,7 @@ function Backtesting({ accounts }: { accounts: TradingAccount[] }) {
       asianPosition: 'break-high',
       breakoutCandle: 'medium-strong',
       asianRangePriceAction: 'sideways',
+      imbalance: 'one-candle',
       structureBreakDuringTrade: true,
       skipIfGapUntagged: true,
       tradeWithinTradingHours: true,
@@ -1274,6 +1276,18 @@ function BacktestVariableFields({
         ]}
         onChange={(next) => update('asianRangePriceAction', next)}
       />
+      <ChoiceField
+        label="Imbalance"
+        value={value.imbalance}
+        columns={2}
+        options={[
+          ['one-candle', '1 candle'],
+          ['two-candle', '2 candle'],
+          ['three-candle', '3 candle'],
+          ['deep-retracement', 'Deep retracement'],
+        ]}
+        onChange={(next) => update('imbalance', next)}
+      />
       <BooleanChoice
         label="Break of structure during entry or trade?"
         value={value.structureBreakDuringTrade}
@@ -1439,6 +1453,7 @@ function BacktestResult({
               : '2nd-half entry',
             variables.breakoutCandle.replace('-', ' '),
             variables.asianRangePriceAction,
+            variables.imbalance.replace('-', ' '),
             `${variables.maePips} pip MAE`,
             `${variables.sessionCloseR}R at close`,
           ].map((item) => (

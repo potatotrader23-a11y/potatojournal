@@ -16,6 +16,7 @@ const choices = {
     'small-wicky',
   ],
   asianRangePriceAction: ['downtrend', 'uptrend', 'sideways', 'choppy'],
+  imbalance: ['one-candle', 'two-candle', 'three-candle', 'deep-retracement'],
 } as const;
 
 const cleanVariables = (value: unknown) => {
@@ -45,6 +46,7 @@ const cleanVariables = (value: unknown) => {
     asianPosition: pick('asianPosition'),
     breakoutCandle: pick('breakoutCandle'),
     asianRangePriceAction: pick('asianRangePriceAction'),
+    imbalance: pick('imbalance'),
     structureBreakDuringTrade: boolean('structureBreakDuringTrade'),
     skipIfGapUntagged: boolean('skipIfGapUntagged'),
     tradeWithinTradingHours: boolean('tradeWithinTradingHours'),
