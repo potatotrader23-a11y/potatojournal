@@ -11,7 +11,6 @@ import {
   CircleHelp,
   FlaskConical,
   LayoutDashboard,
-  Library,
   LogOut,
   Menu,
   Moon,
@@ -1007,83 +1006,41 @@ function TinyStat({ label, value }: { label: string; value: string }) {
 }
 
 function Backtesting() {
-  const [form, setForm] = useState({
-    startingBalance: 10000,
-    trades: 100,
-    winRate: 56,
-    avgWin: 1.8,
-    avgLoss: 1,
-    risk: 0.5,
-    variables: {
-      structureBreakTiming: 'inside-london',
-      entryHalf: 'first-half',
-      closeAfterSession: true,
-      sessionCloseR: 1.5,
-      maePips: 8,
-      asianPosition: 'break-high',
-      breakoutCandle: 'medium-strong',
-      asianRangePriceAction: 'sideways',
-      imbalance: 'one-candle',
-      insideHigherHighOrLow: true,
-      structureBreakDuringTrade: true,
-      skipIfGapUntagged: true,
-      tradeWithinTradingHours: true,
-    } as BacktestVariables,
+  const [variables, setVariables] = useState<BacktestVariables>({
+    structureBreakTiming: 'inside-london',
+    entryHalf: 'first-half',
+    closeAfterSession: true,
+    sessionCloseR: 1.5,
+    maePips: 8,
+    asianPosition: 'break-high',
+    breakoutCandle: 'medium-strong',
+    asianRangePriceAction: 'sideways',
+    imbalance: 'one-candle',
+    insideHigherHighOrLow: true,
+    structureBreakDuringTrade: true,
+    skipIfGapUntagged: true,
+    tradeWithinTradingHours: true,
   });
-  const [result, setResult] = useState<null | {
-    expectancy: number;
-    netR: number;
-    profit: number;
-    final: number;
-    drawdown: number;
-    curve: number[];
-  }>(null);
-  const run = (e: SyntheticEvent<HTMLFormElement>) => {
+  const [saveState, setSaveState] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+  const save = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const expectancy =
-        (form.winRate / 100) * form.avgWin -
-        (1 - form.winRate / 100) * form.avgLoss,
-      netR = expectancy * form.trades,
-      profit = form.startingBalance * (form.risk / 100) * netR,
-      curve = Array.from(
-        { length: 24 },
-        (_, i) =>
-          100 +
-          (netR / 23) * i +
-          Math.sin(i * 1.7) * Math.max(1.2, (100 - form.winRate) / 18),
-      );
-    setResult({
-      expectancy,
-      netR,
-      profit,
-      final: form.startingBalance + profit,
-      drawdown: Math.min(
-        28,
-        (100 - form.winRate) * form.risk * 0.19 +
-          form.avgLoss * form.risk * 2.1,
-      ),
-      curve,
-    });
-  };
-  const save = () => {
-    if (result)
-      void fetch('/api/backtests', {
+    setSaveState('saving');
+    try {
+      const response = await fetch('/api/backtests', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           instrument: 'GBPUSD',
-          assumptions: {
-            startingBalance: form.startingBalance,
-            trades: form.trades,
-            winRate: form.winRate,
-            avgWin: form.avgWin,
-            avgLoss: form.avgLoss,
-            risk: form.risk,
-          },
-          variables: form.variables,
-          results: result,
+          variables,
         }),
-      }).catch(() => undefined);
+      });
+      if (!response.ok) throw new Error('Unable to save backtest');
+      setSaveState('saved');
+    } catch {
+      setSaveState('error');
+    }
   };
   return (
     <>
@@ -1092,94 +1049,70 @@ function Backtesting() {
         title="Backtesting"
         description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
       />
-      <div className="grid gap-4 2xl:grid-cols-[minmax(540px,.95fr)_minmax(0,1.05fr)]">
-        <form onSubmit={run} className="surface p-5">
-          <h2 className="text-sm font-semibold">Test assumptions</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Backtest-only data. Nothing here changes a trading account.
-          </p>
-          <div className="mt-5 space-y-4">
-            <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
+      <form onSubmit={save} className="surface mx-auto max-w-3xl p-5 sm:p-7">
+        <h2 className="text-sm font-semibold">Log GBPUSD backtest</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Record the setup conditions only. No account statistics or simulated
+          projections.
+        </p>
+        <div className="mt-5 space-y-4">
+          <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
+                Backtest market
+              </p>
+              <p className="mt-1 text-lg font-semibold tracking-tight">
+                GBPUSD
+              </p>
+            </div>
+            <Badge className="bg-primary/12 text-primary" variant="secondary">
+              Fixed pair
+            </Badge>
+          </div>
+          <div className="border-t border-border pt-5">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
-                  Backtest market
-                </p>
-                <p className="mt-1 text-lg font-semibold tracking-tight">
-                  GBPUSD
+                <h3 className="text-sm font-semibold">Setup variables</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Capture the session conditions behind this result.
                 </p>
               </div>
-              <Badge className="bg-primary/12 text-primary" variant="secondary">
-                Fixed pair
+              <Badge variant="outline" className="shrink-0 text-[9px]">
+                Study profile
               </Badge>
             </div>
-            <NumberField
-              label="Backtest starting balance"
-              value={form.startingBalance}
-              onChange={(startingBalance) =>
-                setForm({ ...form, startingBalance })
-              }
+            <BacktestVariableFields
+              value={variables}
+              onChange={(next) => {
+                setVariables(next);
+                setSaveState('idle');
+              }}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <NumberField
-                label="Number of trades"
-                value={form.trades}
-                onChange={(trades) => setForm({ ...form, trades })}
-              />
-              <NumberField
-                label="Win rate %"
-                value={form.winRate}
-                onChange={(winRate) => setForm({ ...form, winRate })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <NumberField
-                label="Average win (R)"
-                value={form.avgWin}
-                step="0.1"
-                onChange={(avgWin) => setForm({ ...form, avgWin })}
-              />
-              <NumberField
-                label="Average loss (R)"
-                value={form.avgLoss}
-                step="0.1"
-                onChange={(avgLoss) => setForm({ ...form, avgLoss })}
-              />
-            </div>
-            <NumberField
-              label="Risk per trade %"
-              value={form.risk}
-              step="0.1"
-              onChange={(risk) => setForm({ ...form, risk })}
-            />
-            <div className="border-t border-border pt-5">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Setup variables</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Capture the session conditions behind this result.
-                  </p>
-                </div>
-                <Badge variant="outline" className="shrink-0 text-[9px]">
-                  Study profile
-                </Badge>
-              </div>
-              <BacktestVariableFields
-                value={form.variables}
-                onChange={(variables) => setForm({ ...form, variables })}
-              />
-            </div>
-            <Button type="submit" className="h-11 w-full rounded-xl">
-              <FlaskConical /> Run backtest
-            </Button>
           </div>
-        </form>
-        <BacktestResult
-          result={result}
-          instrument="GBPUSD"
-          variables={form.variables}
-          onSave={save}
-        />
-      </div>
+          <Button
+            type="submit"
+            className="h-11 w-full rounded-xl"
+            disabled={saveState === 'saving'}
+          >
+            {saveState === 'saving' ? (
+              <Activity className="animate-spin" />
+            ) : (
+              <Check />
+            )}
+            {saveState === 'saving' ? 'Saving…' : 'Save backtest'}
+          </Button>
+          {saveState === 'saved' && (
+            <p className="text-center text-xs font-medium text-emerald-500">
+              GBPUSD backtest saved.
+            </p>
+          )}
+          {saveState === 'error' && (
+            <p className="text-center text-xs font-medium text-destructive">
+              Could not save this backtest. Please try again.
+            </p>
+          )}
+        </div>
+      </form>
     </>
   );
 }
@@ -1362,143 +1295,6 @@ function BooleanChoice({
       ]}
       onChange={(next) => onChange(next === 'yes')}
     />
-  );
-}
-function BacktestResult({
-  result,
-  instrument,
-  variables,
-  onSave,
-}: {
-  result: null | {
-    expectancy: number;
-    netR: number;
-    profit: number;
-    final: number;
-    drawdown: number;
-    curve: number[];
-  };
-  instrument: string;
-  variables: BacktestVariables;
-  onSave: () => void;
-}) {
-  if (!result)
-    return (
-      <article className="surface grid min-h-[520px] place-items-center p-8 text-center">
-        <div>
-          <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-secondary/15 text-secondary-foreground dark:text-secondary">
-            <FlaskConical className="size-6" />
-          </span>
-          <h2 className="mt-4 text-lg font-semibold">
-            Ready to test your edge
-          </h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-            Run a simulation to see expectancy, projected P&L, drawdown, and an
-            equity path.
-          </p>
-        </div>
-      </article>
-    );
-  return (
-    <article className="surface overflow-hidden p-5 sm:p-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <Badge variant="secondary">Simulation complete</Badge>
-          <h2 className="mt-3 text-2xl font-semibold">
-            {instrument} strategy result
-          </h2>
-        </div>
-        <Sparkles className="size-5 text-secondary" />
-      </div>
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <ResultStat
-          label="Expectancy"
-          value={`${result.expectancy.toFixed(2)}R`}
-        />
-        <ResultStat label="Net result" value={`${result.netR.toFixed(1)}R`} />
-        <ResultStat label="Projected P&L" value={money(result.profit)} />
-        <ResultStat
-          label="Max drawdown"
-          value={`${result.drawdown.toFixed(1)}%`}
-          warn
-        />
-      </div>
-      <div className="mt-7 h-[245px] rounded-2xl border border-border bg-muted/25 p-4">
-        <svg
-          viewBox="0 0 760 220"
-          className="h-full w-full"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            points={seriesPoints(result.curve)}
-            fill="none"
-            stroke="#BDB2FF"
-            strokeWidth="3"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
-      <div className="mt-5">
-        <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Setup profile
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {[
-            variables.structureBreakTiming === 'inside-london'
-              ? 'BOS inside London'
-              : 'BOS outside London',
-            variables.entryHalf === 'first-half'
-              ? '1st-half entry'
-              : '2nd-half entry',
-            variables.breakoutCandle.replace('-', ' '),
-            variables.asianRangePriceAction,
-            variables.imbalance.replace('-', ' '),
-            variables.insideHigherHighOrLow
-              ? 'Inside higher high / low'
-              : 'Outside higher high / low',
-            `${variables.maePips} pip MAE`,
-            `${variables.sessionCloseR}R at close`,
-          ].map((item) => (
-            <Badge key={item} variant="outline" className="capitalize">
-              {item}
-            </Badge>
-          ))}
-        </div>
-      </div>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-primary/[.06] p-4">
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Projected ending balance
-          </p>
-          <p className="mt-1 text-xl font-semibold">{money(result.final)}</p>
-        </div>
-        <Button variant="outline" onClick={onSave}>
-          <Library /> Save backtest
-        </Button>
-      </div>
-    </article>
-  );
-}
-function ResultStat({
-  label,
-  value,
-  warn,
-}: {
-  label: string;
-  value: string;
-  warn?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p
-        className={`mt-2 text-lg font-semibold ${warn ? 'text-amber-500' : ''}`}
-      >
-        {value}
-      </p>
-    </div>
   );
 }
 function Journal() {
