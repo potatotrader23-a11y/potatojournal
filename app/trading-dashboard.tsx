@@ -1044,7 +1044,7 @@ function Backtesting() {
   const [variables, setVariables] = useState<BacktestVariables>(
     defaultBacktestVariables,
   );
-  const [resultR, setResultR] = useState(1);
+  const [resultRInput, setResultRInput] = useState('1');
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -1072,11 +1072,20 @@ function Backtesting() {
 
   const save = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const parsedResultR = Number(resultRInput);
+    if (
+      !resultRInput.trim() ||
+      resultRInput === '-' ||
+      !Number.isFinite(parsedResultR)
+    ) {
+      setSaveState('error');
+      return;
+    }
     setSaveState('saving');
     try {
       const formData = new FormData();
       formData.set('variables', JSON.stringify(variables));
-      formData.set('resultR', String(resultR));
+      formData.set('resultR', resultRInput);
       if (imageFile) formData.set('image', imageFile);
       if (removeExistingImage) formData.set('removeImage', 'true');
       const response = await fetch(
@@ -1097,7 +1106,7 @@ function Backtesting() {
 
   const resetEditor = () => {
     setVariables(defaultBacktestVariables);
-    setResultR(1);
+    setResultRInput('1');
     setImageFile(null);
     setPreviewUrl(null);
     setEditingId(null);
@@ -1105,7 +1114,7 @@ function Backtesting() {
   };
   const editBacktest = (item: SavedBacktest) => {
     setVariables(item.variables);
-    setResultR(item.resultR);
+    setResultRInput(String(item.resultR));
     setImageFile(null);
     setPreviewUrl(item.imageUrl);
     setEditingId(item.id);
@@ -1193,16 +1202,14 @@ function Backtesting() {
             </Badge>
           </div>
           <div className="border-t border-border pt-5">
-            <NumberField
-              label="RR / trade result"
-              value={resultR}
-              step="0.1"
+            <SignedRField
+              value={resultRInput}
               onChange={(next) => {
-                setResultR(next);
+                setResultRInput(next);
                 setSaveState('idle');
               }}
             />
-            <p className="mt-2 text-[10px] text-muted-foreground">
+            <p id="rr-help" className="mt-2 text-[10px] text-muted-foreground">
               Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
               loss.
             </p>
@@ -1874,6 +1881,58 @@ function NumberField({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />
+    </Field>
+  );
+}
+function SignedRField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const presets = ['-1', '0', '1', '2', '3'];
+  return (
+    <Field label="RR / trade result">
+      <div className="flex gap-2">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          placeholder="Example: -1 or 3"
+          aria-describedby="rr-help"
+          onChange={(event) => {
+            const next = event.target.value.replace(',', '.');
+            if (/^-?\d*(?:\.\d*)?$/.test(next)) onChange(next);
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="w-12 text-base"
+          aria-label="Toggle positive or negative RR"
+          onClick={() =>
+            onChange(value.startsWith('-') ? value.slice(1) : `-${value}`)
+          }
+        >
+          ±
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2" aria-label="Quick RR values">
+        {presets.map((preset) => (
+          <Button
+            key={preset}
+            type="button"
+            variant={value === preset ? 'secondary' : 'outline'}
+            size="sm"
+            className="min-w-12"
+            onClick={() => onChange(preset)}
+          >
+            {Number(preset) > 0 ? '+' : ''}
+            {preset}R
+          </Button>
+        ))}
+      </div>
     </Field>
   );
 }
