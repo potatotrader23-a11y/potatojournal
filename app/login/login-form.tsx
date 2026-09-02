@@ -68,21 +68,6 @@ export function LoginForm({
     window.location.assign('/');
   };
 
-  const signInWithGoogle = async () => {
-    if (!configured) return;
-    setLoading(true);
-    setMessage('');
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    });
-    if (error) {
-      setMessage(error.message);
-      setLoading(false);
-    }
-  };
-
   return (
     <main className="app-canvas grid min-h-screen bg-background text-foreground lg:grid-cols-[1.08fr_.92fr]">
       <section className="relative hidden overflow-hidden border-r border-border p-12 lg:flex lg:flex-col lg:justify-between xl:p-16">
@@ -242,23 +227,6 @@ export function LoginForm({
               {!loading && <ArrowRight className="size-4" />}
             </Button>
           </form>
-
-          <div className="my-6 flex items-center gap-4 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
-            or
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="h-12 w-full rounded-xl bg-card"
-            onClick={signInWithGoogle}
-            disabled={!configured || loading}
-          >
-            <span className="grid size-5 place-items-center rounded-full bg-white text-xs font-bold text-[#4285F4]">
-              G
-            </span>
-            Continue with Google
-          </Button>
 
           <p className="mt-8 text-center text-sm text-muted-foreground">
             {mode === 'sign-in'
