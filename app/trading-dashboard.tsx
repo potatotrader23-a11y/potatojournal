@@ -1,6 +1,7 @@
 'use client';
 
 import { type SyntheticEvent, useEffect, useState } from 'react';
+import Image from 'next/image';
 import {
   Activity,
   ArrowRight,
@@ -11,6 +12,7 @@ import {
   CircleHelp,
   FlaskConical,
   LayoutDashboard,
+  ImagePlus,
   LogOut,
   Menu,
   Moon,
@@ -75,7 +77,6 @@ type TradingAccount = {
 type BacktestVariables = {
   structureBreakTiming: 'inside-london' | 'outside-london';
   entryHalf: 'first-half' | 'second-half';
-  closeAfterSession: boolean;
   maePips: number;
   asianPosition: 'break-high' | 'break-low' | 'inside-session';
   breakoutCandle:
@@ -89,9 +90,20 @@ type BacktestVariables = {
   imbalance: 'one-candle' | 'two-candle' | 'three-candle' | 'deep-retracement';
   insideHigherHighOrLow: boolean;
   structureBreakDuringTrade: boolean;
-  skipIfGapUntagged: boolean;
   tradeWithinTradingHours: boolean;
 };
+type SavedBacktest = {
+  id: string;
+  instrument: 'GBPUSD';
+  variables: BacktestVariables;
+  imageUrl: string | null;
+  createdAt: string;
+};
+async function fetchBacktests() {
+  const response = await fetch('/api/backtests');
+  if (!response.ok) throw new Error('Unable to load backtests');
+  return (await response.json()) as SavedBacktest[];
+}
 
 const seedAccounts: TradingAccount[] = [
   {
@@ -1008,7 +1020,6 @@ function Backtesting() {
   const [variables, setVariables] = useState<BacktestVariables>({
     structureBreakTiming: 'inside-london',
     entryHalf: 'first-half',
-    closeAfterSession: true,
     maePips: 8,
     asianPosition: 'break-high',
     breakoutCandle: 'medium-strong',
@@ -1016,30 +1027,61 @@ function Backtesting() {
     imbalance: 'one-candle',
     insideHigherHighOrLow: true,
     structureBreakDuringTrade: true,
-    skipIfGapUntagged: true,
     tradeWithinTradingHours: true,
   });
+  const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
+
+  useEffect(() => {
+    void fetchBacktests()
+      .then(setBacktests)
+      .catch(() => setSaveState('error'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl],
+  );
+
   const save = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaveState('saving');
     try {
+      const formData = new FormData();
+      formData.set('variables', JSON.stringify(variables));
+      if (imageFile) formData.set('image', imageFile);
       const response = await fetch('/api/backtests', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          instrument: 'GBPUSD',
-          variables,
-        }),
+        body: formData,
       });
       if (!response.ok) throw new Error('Unable to save backtest');
+      setBacktests(await fetchBacktests());
+      setImageFile(null);
+      setPreviewUrl(null);
       setSaveState('saved');
     } catch {
       setSaveState('error');
     }
   };
+
+  const londonCount = backtests.filter(
+    (item) => item.variables.structureBreakTiming === 'inside-london',
+  ).length;
+  const structureCount = backtests.filter(
+    (item) => item.variables.structureBreakDuringTrade,
+  ).length;
+  const imageCount = backtests.filter((item) => item.imageUrl).length;
+  const percentage = (count: number) =>
+    backtests.length ? `${Math.round((count / backtests.length) * 100)}%` : '—';
+
   return (
     <>
       <PageHeading
@@ -1047,6 +1089,12 @@ function Backtesting() {
         title="Backtesting"
         description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
       />
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <BacktestStat label="Saved tests" value={`${backtests.length}`} />
+        <BacktestStat label="Inside London" value={percentage(londonCount)} />
+        <BacktestStat label="BOS in trade" value={percentage(structureCount)} />
+        <BacktestStat label="Charts attached" value={`${imageCount}`} />
+      </div>
       <form onSubmit={save} className="surface mx-auto max-w-3xl p-5 sm:p-7">
         <h2 className="text-sm font-semibold">Log GBPUSD backtest</h2>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -1087,6 +1135,43 @@ function Backtesting() {
               }}
             />
           </div>
+          <div className="border-t border-border pt-5">
+            <Label htmlFor="backtest-image" className="text-xs font-medium">
+              Chart screenshot (optional)
+            </Label>
+            <label
+              htmlFor="backtest-image"
+              className="mt-2 flex min-h-28 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-primary/30 bg-primary/[.035] text-center transition hover:bg-primary/[.07]"
+            >
+              {previewUrl ? (
+                <Image
+                  src={previewUrl}
+                  alt="Selected GBPUSD chart preview"
+                  width={960}
+                  height={540}
+                  unoptimized
+                  className="max-h-72 w-full object-contain"
+                />
+              ) : (
+                <span className="flex flex-col items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
+                  <ImagePlus className="size-5 text-primary" />
+                  Add a PNG, JPEG, or WebP chart (max 5 MB)
+                </span>
+              )}
+            </label>
+            <Input
+              id="backtest-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                setImageFile(file);
+                setPreviewUrl(file ? URL.createObjectURL(file) : null);
+                setSaveState('idle');
+              }}
+            />
+          </div>
           <Button
             type="submit"
             className="h-11 w-full rounded-xl"
@@ -1111,8 +1196,93 @@ function Backtesting() {
           )}
         </div>
       </form>
+      <section className="surface mx-auto mt-5 max-w-3xl p-5 sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Backtest history</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Your saved GBPUSD studies and chart screenshots.
+            </p>
+          </div>
+          <Badge variant="outline">{backtests.length} entries</Badge>
+        </div>
+        {loading ? (
+          <div className="flex min-h-28 items-center justify-center">
+            <Activity className="size-4 animate-spin text-primary" />
+          </div>
+        ) : backtests.length === 0 ? (
+          <div className="mt-5 rounded-xl border border-dashed border-border p-8 text-center">
+            <BarChart3 className="mx-auto size-6 text-primary" />
+            <p className="mt-3 text-sm font-medium">No saved backtests yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Complete the setup above and your analytics will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {backtests.map((item) => (
+              <article
+                key={item.id}
+                className="overflow-hidden rounded-xl border border-border bg-card"
+              >
+                {item.imageUrl && (
+                  <Image
+                    src={item.imageUrl}
+                    alt="GBPUSD backtest chart"
+                    width={720}
+                    height={405}
+                    className="aspect-video w-full object-cover"
+                  />
+                )}
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold">GBPUSD</p>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(item.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Badge variant="secondary">
+                      {item.variables.structureBreakTiming === 'inside-london'
+                        ? 'Inside London'
+                        : 'Outside London'}
+                    </Badge>
+                    <Badge variant="secondary">
+                      {item.variables.entryHalf === 'first-half'
+                        ? '1st half'
+                        : '2nd half'}
+                    </Badge>
+                    <Badge variant="secondary">
+                      MAE {item.variables.maePips} pips
+                    </Badge>
+                    <Badge variant="outline">
+                      {formatBacktestValue(item.variables.breakoutCandle)}
+                    </Badge>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </>
   );
+}
+function BacktestStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="surface p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
+    </div>
+  );
+}
+function formatBacktestValue(value: string) {
+  return value
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 function BacktestVariableFields({
   value,
@@ -1145,11 +1315,6 @@ function BacktestVariableFields({
           ['second-half', '2nd half'],
         ]}
         onChange={(next) => update('entryHalf', next)}
-      />
-      <BooleanChoice
-        label="Close after session?"
-        value={value.closeAfterSession}
-        onChange={(next) => update('closeAfterSession', next)}
       />
       <NumberField
         label="MAE (pips)"
@@ -1214,11 +1379,6 @@ function BacktestVariableFields({
         label="Break of structure during entry or trade?"
         value={value.structureBreakDuringTrade}
         onChange={(next) => update('structureBreakDuringTrade', next)}
-      />
-      <BooleanChoice
-        label="Skip if an Asian-session gap is not tagged?"
-        value={value.skipIfGapUntagged}
-        onChange={(next) => update('skipIfGapUntagged', next)}
       />
       <BooleanChoice
         label="Trade completed within trading hours?"

@@ -37,7 +37,6 @@ const cleanVariables = (value: unknown) => {
   return {
     structureBreakTiming: pick('structureBreakTiming'),
     entryHalf: pick('entryHalf'),
-    closeAfterSession: boolean('closeAfterSession'),
     maePips: Math.max(0, number('maePips')),
     asianPosition: pick('asianPosition'),
     breakoutCandle: pick('breakoutCandle'),
@@ -45,7 +44,6 @@ const cleanVariables = (value: unknown) => {
     imbalance: pick('imbalance'),
     insideHigherHighOrLow: boolean('insideHigherHighOrLow'),
     structureBreakDuringTrade: boolean('structureBreakDuringTrade'),
-    skipIfGapUntagged: boolean('skipIfGapUntagged'),
     tradeWithinTradingHours: boolean('tradeWithinTradingHours'),
   };
 };
@@ -66,11 +64,31 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('backtests')
-    .select('*')
+    .select('id, instrument, variables, image_path, created_at')
     .order('created_at', { ascending: false });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json(data ?? []);
+
+  const rows = data ?? [];
+  const signedImages = await Promise.all(
+    rows.map(async (row) => {
+      if (!row.image_path) return null;
+      const { data: signed } = await supabase.storage
+        .from('backtest-images')
+        .createSignedUrl(row.image_path, 3600);
+      return signed?.signedUrl ?? null;
+    }),
+  );
+
+  return Response.json(
+    rows.map((row, index) => ({
+      id: row.id,
+      instrument: row.instrument,
+      variables: row.variables,
+      imageUrl: signedImages[index],
+      createdAt: row.created_at,
+    })),
+  );
 }
 
 export async function POST(request: Request) {
@@ -87,18 +105,63 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = (await request.json()) as Record<string, unknown>;
+  const formData = await request.formData();
+  const variablesValue = formData.get('variables');
+  let variables: unknown = {};
+  if (typeof variablesValue === 'string') {
+    try {
+      variables = JSON.parse(variablesValue);
+    } catch {
+      return Response.json({ error: 'Invalid variables' }, { status: 400 });
+    }
+  }
+
+  const image = formData.get('image');
+  const acceptedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  if (
+    image instanceof File &&
+    (image.size > 5 * 1024 * 1024 || !acceptedTypes.has(image.type))
+  ) {
+    return Response.json(
+      { error: 'Image must be a PNG, JPEG, or WebP under 5 MB' },
+      { status: 400 },
+    );
+  }
+
   const id = crypto.randomUUID();
+  let imagePath: string | null = null;
+  if (image instanceof File && image.size > 0) {
+    const extension =
+      image.type === 'image/png'
+        ? 'png'
+        : image.type === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+    imagePath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from('backtest-images')
+      .upload(imagePath, image, { contentType: image.type, upsert: false });
+    if (uploadError) {
+      return Response.json({ error: uploadError.message }, { status: 500 });
+    }
+  }
+
   const { error } = await supabase.from('backtests').insert({
     id,
     user_id: user.id,
     account_id: null,
     instrument: 'GBPUSD',
-    assumptions: body.assumptions || {},
-    variables: cleanVariables(body.variables),
-    results: body.results || {},
+    assumptions: {},
+    variables: cleanVariables(variables),
+    results: {},
+    image_path: imagePath,
   });
 
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (imagePath) {
+      await supabase.storage.from('backtest-images').remove([imagePath]);
+    }
+    return Response.json({ error: error.message }, { status: 500 });
+  }
   return Response.json({ id, status: 'saved' });
 }
