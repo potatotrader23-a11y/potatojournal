@@ -118,6 +118,12 @@ const defaultBacktestVariables: BacktestVariables = {
   asianRangePriceAction: 'sideways',
   imbalance: 'one-candle',
 };
+const backtestHours = Array.from({ length: 12 }, (_, index) =>
+  String(index + 1),
+);
+const backtestMinutes = Array.from({ length: 60 }, (_, index) =>
+  String(index).padStart(2, '0'),
+);
 async function fetchBacktests() {
   const response = await fetch('/api/backtests');
   if (!response.ok) throw new Error('Unable to load backtests');
@@ -1405,7 +1411,7 @@ function Backtesting() {
                       {formatBacktestValue(item.variables.setupType)}
                     </Badge>
                     <Badge variant="secondary">
-                      {item.variables.entryTime}
+                      {formatBacktestTime(item.variables.entryTime)}
                     </Badge>
                     <Badge variant="secondary">
                       MAE {item.variables.maePips} pips
@@ -1554,6 +1560,24 @@ function formatBacktestDate(value: string) {
     timeZone: 'UTC',
   });
 }
+function splitBacktestTime(value: string) {
+  const [hourValue = '15', minute = '00'] = value.split(':');
+  const hour24 = Number(hourValue);
+  return {
+    hour: String(((hour24 + 11) % 12) + 1),
+    minute,
+    period: hour24 >= 12 ? 'PM' : 'AM',
+  } as const;
+}
+function joinBacktestTime(hour: string, minute: string, period: 'AM' | 'PM') {
+  const hour12 = Number(hour) % 12;
+  const hour24 = period === 'PM' ? hour12 + 12 : hour12;
+  return `${String(hour24).padStart(2, '0')}:${minute}`;
+}
+function formatBacktestTime(value: string) {
+  const { hour, minute, period } = splitBacktestTime(value);
+  return `${hour}:${minute} ${period}`;
+}
 function BacktestVariableFields({
   value,
   onChange,
@@ -1565,18 +1589,68 @@ function BacktestVariableFields({
     key: K,
     next: BacktestVariables[K],
   ) => onChange({ ...value, [key]: next });
+  const time = splitBacktestTime(value.entryTime);
+  const updateTime = (next: Partial<typeof time>) => {
+    const merged = { ...time, ...next };
+    update(
+      'entryTime',
+      joinBacktestTime(merged.hour, merged.minute, merged.period),
+    );
+  };
 
   return (
     <div className="space-y-5">
       <Field label="Time">
-        <Input
-          type="time"
-          step={60}
-          value={value.entryTime}
-          onChange={(event) => update('entryTime', event.target.value)}
-        />
+        <div className="grid grid-cols-[1fr_1fr_1.15fr] gap-2">
+          <Select
+            value={time.hour}
+            onValueChange={(hour) => updateTime({ hour: hour ?? time.hour })}
+          >
+            <SelectTrigger aria-label="Hour">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {backtestHours.map((hour) => (
+                <SelectItem key={hour} value={hour}>
+                  {hour}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={time.minute}
+            onValueChange={(minute) =>
+              updateTime({ minute: minute ?? time.minute })
+            }
+          >
+            <SelectTrigger aria-label="Minute">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {backtestMinutes.map((minute) => (
+                <SelectItem key={minute} value={minute}>
+                  {minute}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={time.period}
+            onValueChange={(period) =>
+              updateTime({ period: period as 'AM' | 'PM' })
+            }
+          >
+            <SelectTrigger aria-label="AM or PM">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="AM">AM</SelectItem>
+              <SelectItem value="PM">PM</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          24-hour format, for example 15:00, 15:03, or 18:00.
+          12-hour format, for example 3:00 PM or 6:03 PM.
         </p>
       </Field>
       <ChoiceField
