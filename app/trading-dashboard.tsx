@@ -96,6 +96,7 @@ type SavedBacktest = {
   imageUrl: string | null;
   createdAt: string;
 };
+type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 async function fetchBacktests() {
@@ -1016,6 +1017,7 @@ function TinyStat({ label, value }: { label: string; value: string }) {
 }
 
 function Backtesting() {
+  const [backtestTab, setBacktestTab] = useState<BacktestTab>('log');
   const [resultRInput, setResultRInput] = useState('1');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
@@ -1098,9 +1100,12 @@ function Backtesting() {
     setEditingId(item.id);
     setRemoveExistingImage(false);
     setSaveState('idle');
-    document
-      .getElementById('backtest-form')
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setBacktestTab('log');
+    requestAnimationFrame(() => {
+      document
+        .getElementById('backtest-form')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   };
   const deleteBacktest = async () => {
     if (!deleteTarget) return;
@@ -1132,274 +1137,290 @@ function Backtesting() {
         title="Backtesting"
         description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
       />
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <BacktestStat label="Total trades" value={`${backtests.length}`} />
-        <BacktestStat label="Win rate" value={percentage(winCount)} />
-        <BacktestStat
-          label="Average RR"
-          value={backtests.length ? `${averageR.toFixed(2)}R` : '—'}
-        />
-        <BacktestStat
-          label="Net result"
-          value={
-            backtests.length
-              ? `${netR >= 0 ? '+' : ''}${netR.toFixed(1)}R`
-              : '—'
-          }
-        />
-      </div>
-      <BacktestCalendar
-        backtests={backtests}
-        month={calendarMonth}
-        selectedDate={backtestDate}
-        onMonthChange={setCalendarMonth}
-        onDateSelect={(date) => {
-          setBacktestDate(date);
-          setSaveState('idle');
-          document
-            .getElementById('backtest-form')
-            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }}
+      <BacktestTabs
+        value={backtestTab}
+        historyCount={backtests.length}
+        onChange={setBacktestTab}
       />
-      <BacktestEquityCurve backtests={backtests} />
-      <form
-        id="backtest-form"
-        onSubmit={save}
-        className="surface mx-auto mt-5 max-w-3xl scroll-mt-20 p-5 sm:p-7"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">
-              {editingId ? 'Edit GBPUSD backtest' : 'Log GBPUSD backtest'}
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Record the date, RR result, and optional chart.
-            </p>
-          </div>
-          {editingId && <Badge variant="secondary">Editing</Badge>}
+      {backtestTab === 'analytics' && (
+        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <BacktestStat label="Total trades" value={`${backtests.length}`} />
+          <BacktestStat label="Win rate" value={percentage(winCount)} />
+          <BacktestStat
+            label="Average RR"
+            value={backtests.length ? `${averageR.toFixed(2)}R` : '—'}
+          />
+          <BacktestStat
+            label="Net result"
+            value={
+              backtests.length
+                ? `${netR >= 0 ? '+' : ''}${netR.toFixed(1)}R`
+                : '—'
+            }
+          />
         </div>
-        <div className="mt-5 space-y-4">
-          <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
+      )}
+      {backtestTab === 'calendar' && (
+        <BacktestCalendar
+          backtests={backtests}
+          month={calendarMonth}
+          selectedDate={backtestDate}
+          onMonthChange={setCalendarMonth}
+          onDateSelect={(date) => {
+            setBacktestDate(date);
+            setSaveState('idle');
+            setBacktestTab('log');
+          }}
+        />
+      )}
+      {backtestTab === 'analytics' && (
+        <BacktestEquityCurve backtests={backtests} />
+      )}
+      {backtestTab === 'log' && (
+        <form
+          id="backtest-form"
+          onSubmit={save}
+          className="surface mx-auto max-w-3xl scroll-mt-20 p-5 sm:p-7"
+        >
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
-                Backtest market
-              </p>
-              <p className="mt-1 text-lg font-semibold tracking-tight">
-                GBPUSD
+              <h2 className="text-sm font-semibold">
+                {editingId ? 'Edit GBPUSD backtest' : 'Log GBPUSD backtest'}
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Record the date, RR result, and optional chart.
               </p>
             </div>
-            <Badge className="bg-primary/12 text-primary" variant="secondary">
-              Fixed pair
-            </Badge>
+            {editingId && <Badge variant="secondary">Editing</Badge>}
           </div>
-          <div className="border-t border-border pt-5">
-            <Field label="Backtest date">
-              <Input
-                type="date"
-                required
-                value={backtestDate}
-                onChange={(event) => {
-                  setBacktestDate(event.target.value);
+          <div className="mt-5 space-y-4">
+            <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/[.055] p-4">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
+                  Backtest market
+                </p>
+                <p className="mt-1 text-lg font-semibold tracking-tight">
+                  GBPUSD
+                </p>
+              </div>
+              <Badge className="bg-primary/12 text-primary" variant="secondary">
+                Fixed pair
+              </Badge>
+            </div>
+            <div className="border-t border-border pt-5">
+              <Field label="Backtest date">
+                <Input
+                  type="date"
+                  required
+                  value={backtestDate}
+                  onChange={(event) => {
+                    setBacktestDate(event.target.value);
+                    setSaveState('idle');
+                  }}
+                />
+              </Field>
+            </div>
+            <div className="border-t border-border pt-5">
+              <SignedRField
+                value={resultRInput}
+                onChange={(next) => {
+                  setResultRInput(next);
                   setSaveState('idle');
                 }}
               />
-            </Field>
-          </div>
-          <div className="border-t border-border pt-5">
-            <SignedRField
-              value={resultRInput}
-              onChange={(next) => {
-                setResultRInput(next);
-                setSaveState('idle');
-              }}
-            />
-            <p id="rr-help" className="mt-2 text-[10px] text-muted-foreground">
-              Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
-              loss.
-            </p>
-          </div>
-          <div className="border-t border-border pt-5">
-            <Label htmlFor="backtest-image" className="text-xs font-medium">
-              Chart screenshot (optional)
-            </Label>
-            <label
-              htmlFor="backtest-image"
-              className="mt-2 flex min-h-28 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-primary/30 bg-primary/[.035] text-center transition hover:bg-primary/[.07]"
-            >
-              {previewUrl ? (
-                <Image
-                  src={previewUrl}
-                  alt="Selected GBPUSD chart preview"
-                  width={960}
-                  height={540}
-                  unoptimized
-                  className="max-h-72 w-full object-contain"
-                />
-              ) : (
-                <span className="flex flex-col items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
-                  <ImagePlus className="size-5 text-primary" />
-                  Add a PNG, JPEG, or WebP chart (max 5 MB)
-                </span>
-              )}
-            </label>
-            <Input
-              id="backtest-image"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                setImageFile(file);
-                setPreviewUrl(file ? URL.createObjectURL(file) : null);
-                setRemoveExistingImage(false);
-                setSaveState('idle');
-              }}
-            />
-            {previewUrl && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="mt-2 text-destructive"
-                onClick={() => {
-                  setImageFile(null);
-                  setPreviewUrl(null);
-                  setRemoveExistingImage(true);
-                }}
+              <p
+                id="rr-help"
+                className="mt-2 text-[10px] text-muted-foreground"
               >
-                <Trash2 /> Remove chart
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            {editingId && (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 flex-1 rounded-xl"
-                onClick={() => {
-                  resetEditor();
+                Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
+                loss.
+              </p>
+            </div>
+            <div className="border-t border-border pt-5">
+              <Label htmlFor="backtest-image" className="text-xs font-medium">
+                Chart screenshot (optional)
+              </Label>
+              <label
+                htmlFor="backtest-image"
+                className="mt-2 flex min-h-28 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-primary/30 bg-primary/[.035] text-center transition hover:bg-primary/[.07]"
+              >
+                {previewUrl ? (
+                  <Image
+                    src={previewUrl}
+                    alt="Selected GBPUSD chart preview"
+                    width={960}
+                    height={540}
+                    unoptimized
+                    className="max-h-72 w-full object-contain"
+                  />
+                ) : (
+                  <span className="flex flex-col items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
+                    <ImagePlus className="size-5 text-primary" />
+                    Add a PNG, JPEG, or WebP chart (max 5 MB)
+                  </span>
+                )}
+              </label>
+              <Input
+                id="backtest-image"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  setImageFile(file);
+                  setPreviewUrl(file ? URL.createObjectURL(file) : null);
+                  setRemoveExistingImage(false);
                   setSaveState('idle');
                 }}
-              >
-                Cancel
-              </Button>
-            )}
-            <Button
-              type="submit"
-              className="h-11 flex-1 rounded-xl"
-              disabled={saveState === 'saving'}
-            >
-              {saveState === 'saving' ? (
-                <Activity className="animate-spin" />
-              ) : (
-                <Check />
+              />
+              {previewUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 text-destructive"
+                  onClick={() => {
+                    setImageFile(null);
+                    setPreviewUrl(null);
+                    setRemoveExistingImage(true);
+                  }}
+                >
+                  <Trash2 /> Remove chart
+                </Button>
               )}
-              {saveState === 'saving'
-                ? 'Saving…'
-                : editingId
-                  ? 'Update backtest'
-                  : 'Save backtest'}
-            </Button>
-          </div>
-          {saveState === 'saved' && (
-            <p className="text-center text-xs font-medium text-emerald-500">
-              GBPUSD backtest saved successfully.
-            </p>
-          )}
-          {saveState === 'error' && (
-            <p className="text-center text-xs font-medium text-destructive">
-              Could not save this backtest. Please try again.
-            </p>
-          )}
-        </div>
-      </form>
-      <section className="surface mx-auto mt-5 max-w-3xl p-5 sm:p-7">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">Backtest history</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Your saved GBPUSD results and chart screenshots.
-            </p>
-          </div>
-          <Badge variant="outline">{backtests.length} entries</Badge>
-        </div>
-        {loading ? (
-          <div className="flex min-h-28 items-center justify-center">
-            <Activity className="size-4 animate-spin text-primary" />
-          </div>
-        ) : backtests.length === 0 ? (
-          <div className="mt-5 rounded-xl border border-dashed border-border p-8 text-center">
-            <BarChart3 className="mx-auto size-6 text-primary" />
-            <p className="mt-3 text-sm font-medium">No saved backtests yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Save a result above and your analytics will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {backtests.map((item) => (
-              <article
-                key={item.id}
-                className="overflow-hidden rounded-xl border border-border bg-card"
+            </div>
+            <div className="flex gap-2">
+              {editingId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 flex-1 rounded-xl"
+                  onClick={() => {
+                    resetEditor();
+                    setSaveState('idle');
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                type="submit"
+                className="h-11 flex-1 rounded-xl"
+                disabled={saveState === 'saving'}
               >
-                {item.imageUrl && (
-                  <Image
-                    src={item.imageUrl}
-                    alt="GBPUSD backtest chart"
-                    width={720}
-                    height={405}
-                    className="aspect-video w-full object-cover"
-                  />
+                {saveState === 'saving' ? (
+                  <Activity className="animate-spin" />
+                ) : (
+                  <Check />
                 )}
-                <div className="p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold">GBPUSD</p>
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatBacktestDate(item.backtestDate)}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    <Badge
-                      className={
-                        item.resultR > 0
-                          ? 'bg-emerald-500/10 text-emerald-500'
-                          : item.resultR < 0
-                            ? 'bg-destructive/10 text-destructive'
-                            : ''
-                      }
-                      variant="secondary"
-                    >
-                      {item.resultR > 0 ? '+' : ''}
-                      {item.resultR}R
-                    </Badge>
-                  </div>
-                  <div className="mt-4 flex gap-2 border-t border-border pt-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => editBacktest(item)}
-                    >
-                      <Pencil /> Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => setDeleteTarget(item)}
-                    >
-                      <Trash2 /> Delete
-                    </Button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                {saveState === 'saving'
+                  ? 'Saving…'
+                  : editingId
+                    ? 'Update backtest'
+                    : 'Save backtest'}
+              </Button>
+            </div>
+            {saveState === 'saved' && (
+              <p className="text-center text-xs font-medium text-emerald-500">
+                GBPUSD backtest saved successfully.
+              </p>
+            )}
+            {saveState === 'error' && (
+              <p className="text-center text-xs font-medium text-destructive">
+                Could not save this backtest. Please try again.
+              </p>
+            )}
           </div>
-        )}
-      </section>
+        </form>
+      )}
+      {backtestTab === 'history' && (
+        <section className="surface mx-auto max-w-3xl p-5 sm:p-7">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Backtest history</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your saved GBPUSD results and chart screenshots.
+              </p>
+            </div>
+            <Badge variant="outline">{backtests.length} entries</Badge>
+          </div>
+          {loading ? (
+            <div className="flex min-h-28 items-center justify-center">
+              <Activity className="size-4 animate-spin text-primary" />
+            </div>
+          ) : backtests.length === 0 ? (
+            <div className="mt-5 rounded-xl border border-dashed border-border p-8 text-center">
+              <BarChart3 className="mx-auto size-6 text-primary" />
+              <p className="mt-3 text-sm font-medium">No saved backtests yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Save a result above and your analytics will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {backtests.map((item) => (
+                <article
+                  key={item.id}
+                  className="overflow-hidden rounded-xl border border-border bg-card"
+                >
+                  {item.imageUrl && (
+                    <Image
+                      src={item.imageUrl}
+                      alt="GBPUSD backtest chart"
+                      width={720}
+                      height={405}
+                      className="aspect-video w-full object-cover"
+                    />
+                  )}
+                  <div className="p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">GBPUSD</p>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatBacktestDate(item.backtestDate)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <Badge
+                        className={
+                          item.resultR > 0
+                            ? 'bg-emerald-500/10 text-emerald-500'
+                            : item.resultR < 0
+                              ? 'bg-destructive/10 text-destructive'
+                              : ''
+                        }
+                        variant="secondary"
+                      >
+                        {item.resultR > 0 ? '+' : ''}
+                        {item.resultR}R
+                      </Badge>
+                    </div>
+                    <div className="mt-4 flex gap-2 border-t border-border pt-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => editBacktest(item)}
+                      >
+                        <Pencil /> Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => setDeleteTarget(item)}
+                      >
+                        <Trash2 /> Delete
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -1421,6 +1442,57 @@ function Backtesting() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+function BacktestTabs({
+  value,
+  historyCount,
+  onChange,
+}: {
+  value: BacktestTab;
+  historyCount: number;
+  onChange: (tab: BacktestTab) => void;
+}) {
+  const tabs = [
+    { value: 'log', label: 'Log Backtest', icon: FlaskConical },
+    { value: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'history', label: 'History', icon: BookOpenCheck },
+  ] as const;
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Backtesting sections"
+      className="surface mb-5 overflow-x-auto p-1.5"
+    >
+      <div className="grid min-w-[570px] grid-cols-4 gap-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = value === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(tab.value)}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition ${active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+            >
+              <Icon className="size-4" />
+              {tab.label}
+              {tab.value === 'history' && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-primary-foreground/15' : 'bg-muted'}`}
+                >
+                  {historyCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 type CalendarDayResult = {
