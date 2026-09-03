@@ -85,24 +85,9 @@ type TradingAccount = {
   pnl: number;
   equity: number[];
 };
-type BacktestVariables = {
-  entryTime: string;
-  setupType: 'continuation' | 'breakout' | 'reversal';
-  maePips: number;
-  breakoutCandle:
-    | 'large-strong'
-    | 'large-wicky'
-    | 'medium-strong'
-    | 'medium-wicky'
-    | 'small-strong'
-    | 'small-wicky';
-  asianRangePriceAction: 'downtrend' | 'uptrend' | 'sideways' | 'choppy';
-  imbalance: 'one-candle' | 'two-candle' | 'three-candle' | 'deep-retracement';
-};
 type SavedBacktest = {
   id: string;
   instrument: 'GBPUSD';
-  variables: BacktestVariables;
   resultR: number;
   backtestDate: string;
   imageUrl: string | null;
@@ -110,14 +95,6 @@ type SavedBacktest = {
 };
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-const defaultBacktestVariables: BacktestVariables = {
-  entryTime: '15:00',
-  setupType: 'continuation',
-  maePips: 8,
-  breakoutCandle: 'medium-strong',
-  asianRangePriceAction: 'sideways',
-  imbalance: 'one-candle',
-};
 async function fetchBacktests() {
   const response = await fetch('/api/backtests');
   if (!response.ok) throw new Error('Unable to load backtests');
@@ -1036,9 +1013,6 @@ function TinyStat({ label, value }: { label: string; value: string }) {
 }
 
 function Backtesting() {
-  const [variables, setVariables] = useState<BacktestVariables>(
-    defaultBacktestVariables,
-  );
   const [resultRInput, setResultRInput] = useState('1');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
@@ -1080,7 +1054,7 @@ function Backtesting() {
     setSaveState('saving');
     try {
       const formData = new FormData();
-      formData.set('variables', JSON.stringify(variables));
+      formData.set('variables', '{}');
       formData.set('resultR', resultRInput);
       formData.set('backtestDate', backtestDate);
       if (imageFile) formData.set('image', imageFile);
@@ -1102,7 +1076,6 @@ function Backtesting() {
   };
 
   const resetEditor = () => {
-    setVariables(defaultBacktestVariables);
     setResultRInput('1');
     setBacktestDate(manilaToday());
     setImageFile(null);
@@ -1111,7 +1084,6 @@ function Backtesting() {
     setRemoveExistingImage(false);
   };
   const editBacktest = (item: SavedBacktest) => {
-    setVariables(item.variables);
     setResultRInput(String(item.resultR));
     setBacktestDate(item.backtestDate);
     setImageFile(null);
@@ -1181,7 +1153,7 @@ function Backtesting() {
               {editingId ? 'Edit GBPUSD backtest' : 'Log GBPUSD backtest'}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Record the setup, RR result, and optional chart.
+              Record the date, RR result, and optional chart.
             </p>
           </div>
           {editingId && <Badge variant="secondary">Editing</Badge>}
@@ -1225,26 +1197,6 @@ function Backtesting() {
               Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
               loss.
             </p>
-          </div>
-          <div className="border-t border-border pt-5">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold">Setup variables</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Capture the session conditions behind this result.
-                </p>
-              </div>
-              <Badge variant="outline" className="shrink-0 text-[9px]">
-                Study profile
-              </Badge>
-            </div>
-            <BacktestVariableFields
-              value={variables}
-              onChange={(next) => {
-                setVariables(next);
-                setSaveState('idle');
-              }}
-            />
           </div>
           <div className="border-t border-border pt-5">
             <Label htmlFor="backtest-image" className="text-xs font-medium">
@@ -1347,7 +1299,7 @@ function Backtesting() {
           <div>
             <h2 className="text-sm font-semibold">Backtest history</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Your saved GBPUSD studies and chart screenshots.
+              Your saved GBPUSD results and chart screenshots.
             </p>
           </div>
           <Badge variant="outline">{backtests.length} entries</Badge>
@@ -1361,7 +1313,7 @@ function Backtesting() {
             <BarChart3 className="mx-auto size-6 text-primary" />
             <p className="mt-3 text-sm font-medium">No saved backtests yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Complete the setup above and your analytics will appear here.
+              Save a result above and your analytics will appear here.
             </p>
           </div>
         ) : (
@@ -1400,18 +1352,6 @@ function Backtesting() {
                     >
                       {item.resultR > 0 ? '+' : ''}
                       {item.resultR}R
-                    </Badge>
-                    <Badge variant="secondary">
-                      {formatBacktestValue(item.variables.setupType)}
-                    </Badge>
-                    <Badge variant="secondary">
-                      {item.variables.entryTime}
-                    </Badge>
-                    <Badge variant="secondary">
-                      MAE {item.variables.maePips} pips
-                    </Badge>
-                    <Badge variant="outline">
-                      {formatBacktestValue(item.variables.breakoutCandle)}
                     </Badge>
                   </div>
                   <div className="mt-4 flex gap-2 border-t border-border pt-3">
@@ -1540,12 +1480,6 @@ function BacktestStat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function formatBacktestValue(value: string) {
-  return value
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
 function formatBacktestDate(value: string) {
   return new Date(`${value}T00:00:00Z`).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -1553,131 +1487,6 @@ function formatBacktestDate(value: string) {
     day: 'numeric',
     timeZone: 'UTC',
   });
-}
-function BacktestVariableFields({
-  value,
-  onChange,
-}: {
-  value: BacktestVariables;
-  onChange: (value: BacktestVariables) => void;
-}) {
-  const update = <K extends keyof BacktestVariables>(
-    key: K,
-    next: BacktestVariables[K],
-  ) => onChange({ ...value, [key]: next });
-
-  return (
-    <div className="space-y-5">
-      <Field label="Time">
-        <Input
-          type="text"
-          inputMode="numeric"
-          required
-          maxLength={5}
-          pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
-          title="Enter time in 24-hour HH:mm format, such as 16:00"
-          placeholder="16:00"
-          value={value.entryTime}
-          onChange={(event) => update('entryTime', event.target.value)}
-        />
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          24-hour format, for example 15:00, 16:00, or 18:03.
-        </p>
-      </Field>
-      <ChoiceField
-        label="Setup"
-        value={value.setupType}
-        options={[
-          ['continuation', 'Continuation'],
-          ['breakout', 'Breakout'],
-          ['reversal', 'Reversal'],
-        ]}
-        onChange={(next) => update('setupType', next)}
-      />
-      <NumberField
-        label="MAE (pips)"
-        value={value.maePips}
-        step="0.1"
-        onChange={(next) => update('maePips', Math.max(0, next))}
-      />
-      <ChoiceField
-        label="Breakout candle"
-        value={value.breakoutCandle}
-        columns={2}
-        options={[
-          ['large-strong', 'Large Strong'],
-          ['large-wicky', 'Large Wicky'],
-          ['medium-strong', 'Medium Strong'],
-          ['medium-wicky', 'Medium Wicky'],
-          ['small-strong', 'Small Strong'],
-          ['small-wicky', 'Small Wicky'],
-        ]}
-        onChange={(next) => update('breakoutCandle', next)}
-      />
-      <ChoiceField
-        label="Asian range price action"
-        value={value.asianRangePriceAction}
-        columns={2}
-        options={[
-          ['downtrend', 'Downtrend'],
-          ['uptrend', 'Uptrend'],
-          ['sideways', 'Sideways'],
-          ['choppy', 'Choppy'],
-        ]}
-        onChange={(next) => update('asianRangePriceAction', next)}
-      />
-      <ChoiceField
-        label="Imbalance"
-        value={value.imbalance}
-        columns={2}
-        options={[
-          ['one-candle', '1 candle'],
-          ['two-candle', '2 candle'],
-          ['three-candle', '3 candle'],
-          ['deep-retracement', 'Deep retracement'],
-        ]}
-        onChange={(next) => update('imbalance', next)}
-      />
-    </div>
-  );
-}
-function ChoiceField<T extends string>({
-  label,
-  value,
-  options,
-  columns,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: readonly (readonly [T, string])[];
-  columns?: 2;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <fieldset>
-      <legend className="mb-2 text-xs font-medium">{label}</legend>
-      <div
-        className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : 'sm:grid-cols-2'}`}
-      >
-        {options.map(([option, text]) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={value === option}
-            onClick={() => onChange(option)}
-            className={`min-h-10 rounded-xl border px-3 py-2 text-left text-xs transition ${
-              value === option
-                ? 'border-primary/45 bg-primary/10 font-medium text-primary'
-                : 'border-border bg-card text-muted-foreground hover:border-primary/25 hover:text-foreground'
-            }`}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </fieldset>
-  );
 }
 function Journal() {
   return (

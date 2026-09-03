@@ -1,47 +1,5 @@
-export const backtestChoices = {
-  setupType: ['continuation', 'breakout', 'reversal'],
-  breakoutCandle: [
-    'large-strong',
-    'large-wicky',
-    'medium-strong',
-    'medium-wicky',
-    'small-strong',
-    'small-wicky',
-  ],
-  asianRangePriceAction: ['downtrend', 'uptrend', 'sideways', 'choppy'],
-  imbalance: ['one-candle', 'two-candle', 'three-candle', 'deep-retracement'],
-} as const;
-
-export function cleanBacktestVariables(value: unknown) {
-  const input =
-    value && typeof value === 'object'
-      ? (value as Record<string, unknown>)
-      : {};
-  const pick = (key: keyof typeof backtestChoices) => {
-    const candidate = input[key];
-    return typeof candidate === 'string' &&
-      (backtestChoices[key] as readonly string[]).includes(candidate)
-      ? candidate
-      : backtestChoices[key][0];
-  };
-  const number = (key: string) => {
-    const candidate = Number(input[key]);
-    return Number.isFinite(candidate) ? candidate : 0;
-  };
-  const entryTime =
-    typeof input.entryTime === 'string' &&
-    /^([01]\d|2[0-3]):[0-5]\d$/.test(input.entryTime)
-      ? input.entryTime
-      : '15:00';
-
-  return {
-    entryTime,
-    setupType: pick('setupType'),
-    maePips: Math.max(0, number('maePips')),
-    breakoutCandle: pick('breakoutCandle'),
-    asianRangePriceAction: pick('asianRangePriceAction'),
-    imbalance: pick('imbalance'),
-  };
+export function cleanBacktestVariables(_value: unknown) {
+  return {};
 }
 
 export function parseVariables(value: FormDataEntryValue | null) {
