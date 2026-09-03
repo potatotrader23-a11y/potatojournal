@@ -8,7 +8,10 @@ import {
   BarChart3,
   BookOpenCheck,
   BriefcaseBusiness,
+  CalendarDays,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   FlaskConical,
   LayoutDashboard,
@@ -1015,6 +1018,9 @@ function TinyStat({ label, value }: { label: string; value: string }) {
 function Backtesting() {
   const [resultRInput, setResultRInput] = useState('1');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
+  const [calendarMonth, setCalendarMonth] = useState(() =>
+    manilaToday().slice(0, 7),
+  );
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [loading, setLoading] = useState(true);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -1068,6 +1074,7 @@ function Backtesting() {
       );
       if (!response.ok) throw new Error('Unable to save backtest');
       setBacktests(await fetchBacktests());
+      setCalendarMonth(backtestDate.slice(0, 7));
       resetEditor();
       setSaveState('saved');
     } catch {
@@ -1141,6 +1148,19 @@ function Backtesting() {
           }
         />
       </div>
+      <BacktestCalendar
+        backtests={backtests}
+        month={calendarMonth}
+        selectedDate={backtestDate}
+        onMonthChange={setCalendarMonth}
+        onDateSelect={(date) => {
+          setBacktestDate(date);
+          setSaveState('idle');
+          document
+            .getElementById('backtest-form')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
+      />
       <BacktestEquityCurve backtests={backtests} />
       <form
         id="backtest-form"
@@ -1401,6 +1421,231 @@ function Backtesting() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+type CalendarDayResult = {
+  trades: number;
+  wins: number;
+  losses: number;
+  netR: number;
+};
+function BacktestCalendar({
+  backtests,
+  month,
+  selectedDate,
+  onMonthChange,
+  onDateSelect,
+}: {
+  backtests: SavedBacktest[];
+  month: string;
+  selectedDate: string;
+  onMonthChange: (month: string) => void;
+  onDateSelect: (date: string) => void;
+}) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const firstWeekday = new Date(year, monthNumber - 1, 1).getDay();
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const resultsByDate = backtests.reduce<Map<string, CalendarDayResult>>(
+    (results, item) => {
+      if (!item.backtestDate.startsWith(`${month}-`)) return results;
+      const current = results.get(item.backtestDate) ?? {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        netR: 0,
+      };
+      current.trades += 1;
+      current.wins += item.resultR > 0 ? 1 : 0;
+      current.losses += item.resultR < 0 ? 1 : 0;
+      current.netR += item.resultR;
+      results.set(item.backtestDate, current);
+      return results;
+    },
+    new Map(),
+  );
+  const monthResults = [...resultsByDate.values()].reduce<CalendarDayResult>(
+    (total, day) => ({
+      trades: total.trades + day.trades,
+      wins: total.wins + day.wins,
+      losses: total.losses + day.losses,
+      netR: total.netR + day.netR,
+    }),
+    { trades: 0, wins: 0, losses: 0, netR: 0 },
+  );
+  const monthLabel = new Date(year, monthNumber - 1, 1).toLocaleDateString(
+    undefined,
+    {
+      month: 'long',
+      year: 'numeric',
+    },
+  );
+  const changeMonth = (offset: number) => {
+    const next = new Date(year, monthNumber - 1 + offset, 1);
+    onMonthChange(
+      `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`,
+    );
+  };
+  const cells = Array.from(
+    { length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 },
+    (_, index) => {
+      const day = index - firstWeekday + 1;
+      return day > 0 && day <= daysInMonth ? day : null;
+    },
+  );
+
+  return (
+    <section className="surface mb-5 overflow-hidden p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <CalendarDays className="size-4 text-primary" />
+            <h2 className="text-sm font-semibold">Win / loss calendar</h2>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Daily GBPUSD results. Select a day to log another backtest.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-9"
+            aria-label="Previous month"
+            onClick={() => changeMonth(-1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <div className="min-w-36 text-center text-sm font-semibold">
+            {monthLabel}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-9"
+            aria-label="Next month"
+            onClick={() => changeMonth(1)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-4 gap-2 sm:max-w-xl">
+        <CalendarSummary label="Trades" value={`${monthResults.trades}`} />
+        <CalendarSummary
+          label="Wins"
+          value={`${monthResults.wins}`}
+          tone="win"
+        />
+        <CalendarSummary
+          label="Losses"
+          value={`${monthResults.losses}`}
+          tone="loss"
+        />
+        <CalendarSummary
+          label="Net"
+          value={`${monthResults.netR > 0 ? '+' : ''}${monthResults.netR.toFixed(1)}R`}
+          tone={
+            monthResults.netR > 0
+              ? 'win'
+              : monthResults.netR < 0
+                ? 'loss'
+                : undefined
+          }
+        />
+      </div>
+      <div className="mt-5 grid grid-cols-7 border-l border-t border-border text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="border-b border-r border-border py-2">
+            <span className="sm:hidden">{day.charAt(0)}</span>
+            <span className="hidden sm:inline">{day}</span>
+          </div>
+        ))}
+        {cells.map((day, index) => {
+          if (day === null) {
+            return (
+              <div
+                key={`empty-${index}`}
+                className="min-h-16 border-b border-r border-border bg-muted/15 sm:min-h-24"
+              />
+            );
+          }
+          const date = `${month}-${String(day).padStart(2, '0')}`;
+          const result = resultsByDate.get(date);
+          const tone = result
+            ? result.netR > 0
+              ? 'border-emerald-500/30 bg-emerald-500/[.08] hover:bg-emerald-500/[.13]'
+              : result.netR < 0
+                ? 'border-destructive/30 bg-destructive/[.08] hover:bg-destructive/[.13]'
+                : 'bg-muted/45 hover:bg-muted/65'
+            : 'hover:bg-primary/[.04]';
+          return (
+            <button
+              key={date}
+              type="button"
+              aria-label={`${formatBacktestDate(date)}${result ? `, ${result.wins} wins, ${result.losses} losses, ${result.netR.toFixed(1)} R` : ', no trades'}`}
+              onClick={() => onDateSelect(date)}
+              className={`min-h-16 border-b border-r border-border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${tone} ${selectedDate === date ? 'relative z-10 ring-2 ring-inset ring-primary' : ''}`}
+            >
+              <span className="text-xs font-semibold">{day}</span>
+              {result && (
+                <span className="mt-1 flex flex-col gap-0.5">
+                  <span
+                    className={`text-[10px] font-semibold sm:text-xs ${result.netR > 0 ? 'text-emerald-500' : result.netR < 0 ? 'text-destructive' : 'text-foreground'}`}
+                  >
+                    {result.netR > 0 ? '+' : ''}
+                    {result.netR.toFixed(1)}R
+                  </span>
+                  <span className="hidden text-[9px] text-muted-foreground sm:block">
+                    {result.wins}W · {result.losses}L
+                  </span>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4 text-[10px] text-muted-foreground">
+        <CalendarLegend className="bg-emerald-500" label="Winning day" />
+        <CalendarLegend className="bg-destructive" label="Losing day" />
+        <CalendarLegend className="bg-muted-foreground" label="Breakeven" />
+      </div>
+    </section>
+  );
+}
+function CalendarSummary({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'win' | 'loss';
+}) {
+  return (
+    <div className="rounded-xl bg-muted/45 px-2.5 py-2">
+      <p className="text-[9px] text-muted-foreground">{label}</p>
+      <p
+        className={`mt-0.5 text-sm font-semibold ${tone === 'win' ? 'text-emerald-500' : tone === 'loss' ? 'text-destructive' : ''}`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+function CalendarLegend({
+  className,
+  label,
+}: {
+  className: string;
+  label: string;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`size-2 rounded-full ${className}`} />
+      {label}
+    </span>
   );
 }
 function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
