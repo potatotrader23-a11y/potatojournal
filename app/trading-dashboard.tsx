@@ -319,14 +319,11 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             >
               {light ? <Moon /> : <Sun />}
             </Button>
-            <Button
-              className="h-10 rounded-xl px-3 text-xs font-semibold sm:px-4"
-              onClick={() => setView('backtesting')}
-            >
-              <Plus />
-              <span className="hidden sm:inline">Log backtest</span>
-              <span className="sm:hidden">Log</span>
-            </Button>
+            {view === 'backtesting' && (
+              <Badge variant="outline" className="hidden sm:flex">
+                Backtest workspace
+              </Badge>
+            )}
             <button
               type="button"
               onClick={signOut}
@@ -352,9 +349,7 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               compareIds={compareIds}
               onCompare={setCompareIds}
               onAdd={() => openAccount()}
-              backtests={backtests}
-              loading={accountsLoading || backtestsLoading}
-              onOpenBacktests={() => setView('backtesting')}
+              loading={accountsLoading}
             />
           )}
           {view === 'accounts' && (
@@ -458,9 +453,7 @@ function Overview({
   compareIds,
   onCompare,
   onAdd,
-  backtests,
   loading,
-  onOpenBacktests,
 }: {
   accounts: TradingAccount[];
   active: TradingAccount | undefined;
@@ -468,9 +461,7 @@ function Overview({
   compareIds: string[];
   onCompare: (ids: string[]) => void;
   onAdd: () => void;
-  backtests: SavedBacktest[];
   loading: boolean;
-  onOpenBacktests: () => void;
 }) {
   const totalBalance = compared.reduce(
     (sum, account) => sum + account.balance,
@@ -480,11 +471,11 @@ function Overview({
   const oneCurrency =
     compared.length > 0 &&
     compared.every((account) => account.currency === compared[0].currency);
-  const winCount = backtests.filter((item) => item.resultR > 0).length;
-  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
-  const winRate = backtests.length
-    ? `${Math.round((winCount / backtests.length) * 100)}%`
-    : '—';
+  const riskAmount = active ? (active.balance * active.riskPercent) / 100 : 0;
+  const maxLossFloor = active
+    ? active.startingBalance * (1 - active.maxLossPercent / 100)
+    : 0;
+  const lossBuffer = active ? active.balance - maxLossFloor : 0;
   const accountValue = !compared.length
     ? '—'
     : oneCurrency
@@ -565,46 +556,44 @@ function Overview({
           icon={totalPnl < 0 ? TrendingDown : TrendingUp}
         />
         <Metric
-          label="Backtest win rate"
-          value={loading ? '…' : winRate}
-          detail={`${backtests.length} saved GBPUSD result${backtests.length === 1 ? '' : 's'}`}
-          positive={winCount > 0}
-          icon={Target}
+          label="Risk per trade"
+          value={
+            loading ? '…' : active ? money(riskAmount, active.currency) : '—'
+          }
+          detail={
+            active
+              ? `${active.riskPercent}% of ${active.name}`
+              : 'No account selected'
+          }
+          icon={ShieldCheck}
         />
         <Metric
-          label="Backtest net result"
+          label="Loss buffer"
           value={
-            loading
-              ? '…'
-              : backtests.length
-                ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
-                : '—'
+            loading ? '…' : active ? money(lossBuffer, active.currency) : '—'
           }
-          detail="Cumulative result from saved tests"
-          positive={netR > 0}
-          icon={netR < 0 ? TrendingDown : BarChart3}
+          detail="Room before the account's maximum loss limit"
+          positive={lossBuffer > 0}
+          icon={lossBuffer < 0 ? TrendingDown : ShieldCheck}
         />
       </div>
-      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.75fr)]">
-        <BacktestEquityCurve backtests={backtests} />
-        {active ? (
-          <RiskCard account={active} />
-        ) : (
+      {active ? (
+        <>
+          <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.75fr)]">
+            <AccountEquityCurve
+              accounts={compared.length ? compared : [active]}
+            />
+            <RiskCard account={active} />
+          </div>
+          <div className="mt-3">
+            <AccountSnapshot accounts={accounts} active={active} />
+          </div>
+        </>
+      ) : !loading ? (
+        <div className="mt-3">
           <EmptyAccountCard onAdd={onAdd} />
-        )}
-      </div>
-      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(330px,.8fr)]">
-        <RecentBacktests
-          backtests={backtests}
-          loading={loading}
-          onOpen={onOpenBacktests}
-        />
-        {active ? (
-          <AccountSnapshot accounts={accounts} active={active} />
-        ) : (
-          <EmptyAccountCard onAdd={onAdd} compact />
-        )}
-      </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -649,6 +638,93 @@ function seriesPoints(values: number[]) {
     )
     .join(' ');
 }
+function AccountEquityCurve({ accounts }: { accounts: TradingAccount[] }) {
+  const colors = ['var(--primary)', 'var(--secondary)', 'var(--accent)'];
+  const normalized = accounts.map((account) => {
+    const saved = Array.isArray(account.equity)
+      ? account.equity.filter((value) => Number.isFinite(value))
+      : [];
+    const current = account.startingBalance
+      ? (account.balance / account.startingBalance) * 100
+      : 100;
+    const values = saved.length ? [...saved] : [100];
+    if (Math.abs((values.at(-1) ?? 100) - current) > 0.001)
+      values.push(current);
+    if (values.length === 1) values.unshift(100);
+    return { account, values };
+  });
+  const allValues = normalized.flatMap((item) => item.values);
+  const min = Math.min(...allValues, 100) - 1;
+  const max = Math.max(...allValues, 100) + 1;
+  const points = (values: number[]) =>
+    values
+      .map(
+        (value, index) =>
+          `${(index / Math.max(values.length - 1, 1)) * 760},${210 - ((value - min) / Math.max(max - min, 1)) * 185}`,
+      )
+      .join(' ');
+
+  return (
+    <article className="surface overflow-hidden p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold">Live account equity</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Starting balance compared with each saved balance update.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+          {normalized.map(({ account }, index) => (
+            <span key={account.id} className="flex items-center gap-1.5">
+              <span
+                className="size-2 rounded-full"
+                style={{ backgroundColor: colors[index % colors.length] }}
+              />
+              {account.name} · {money(account.balance, account.currency)}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="mt-5 h-48 sm:h-56">
+        <svg
+          viewBox="0 0 760 230"
+          className="h-full w-full"
+          preserveAspectRatio="none"
+          aria-label="Live account equity curve"
+        >
+          <title>Live trading-account equity curve</title>
+          {[35, 85, 135, 185].map((y) => (
+            <line
+              key={y}
+              x1="0"
+              y1={y}
+              x2="760"
+              y2={y}
+              stroke="currentColor"
+              className="text-border"
+              strokeDasharray="4 6"
+            />
+          ))}
+          {normalized.map(({ account, values }, index) => (
+            <polyline
+              key={account.id}
+              points={points(values)}
+              fill="none"
+              stroke={colors[index % colors.length]}
+              strokeWidth="3"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          ))}
+        </svg>
+      </div>
+      <div className="flex justify-between text-[9px] text-muted-foreground">
+        <span>Starting balance</span>
+        <span>Current balance</span>
+      </div>
+    </article>
+  );
+}
 function RiskCard({ account }: { account: TradingAccount }) {
   const risk = (account.balance * account.riskPercent) / 100,
     daily = (account.balance * account.dailyLossPercent) / 100,
@@ -670,7 +746,7 @@ function RiskCard({ account }: { account: TradingAccount }) {
         </p>
         <div className="mt-1 flex items-baseline justify-between">
           <span className="text-3xl font-semibold tracking-tight">
-            {money(risk)}
+            {money(risk, account.currency)}
           </span>
           <span className="text-sm font-medium text-primary">
             {account.riskPercent}%
@@ -680,17 +756,17 @@ function RiskCard({ account }: { account: TradingAccount }) {
       <div className="mt-5 space-y-4">
         <RiskRow
           label="Daily stop"
-          amount={money(daily)}
+          amount={money(daily, account.currency)}
           percent={account.dailyLossPercent}
         />
         <RiskRow
           label="Maximum loss"
-          amount={money(max)}
+          amount={money(max, account.currency)}
           percent={account.maxLossPercent}
         />
         <RiskRow
           label="Current cushion"
-          amount={money(Math.max(account.pnl, 0))}
+          amount={money(Math.max(account.pnl, 0), account.currency)}
           percent={Math.max((account.pnl / account.startingBalance) * 100, 0)}
         />
       </div>
@@ -2171,17 +2247,27 @@ function AccountForm({
     maxLossPercent: editing?.maxLossPercent ?? 8,
   });
   const submit = (e: SyntheticEvent<HTMLFormElement>) => {
-      e.preventDefault();
-      const startingBalance = editing?.startingBalance ?? form.balance;
-      onSave({
-        id: editing?.id ?? crypto.randomUUID(),
-        ...form,
-        startingBalance,
-        pnl: form.balance - startingBalance,
-        equity: editing?.equity ?? [100, 100],
-      });
-    },
-    risk = (form.balance * form.riskPercent) / 100;
+    e.preventDefault();
+    const startingBalance = editing?.startingBalance ?? form.balance;
+    const savedEquity = Array.isArray(editing?.equity)
+      ? editing.equity.filter((value) => Number.isFinite(value))
+      : [];
+    const currentEquity = startingBalance
+      ? (form.balance / startingBalance) * 100
+      : 100;
+    const equity = savedEquity.length ? [...savedEquity] : [100];
+    if (Math.abs((equity.at(-1) ?? 100) - currentEquity) > 0.001) {
+      equity.push(currentEquity);
+    }
+    onSave({
+      id: editing?.id ?? crypto.randomUUID(),
+      ...form,
+      startingBalance,
+      pnl: form.balance - startingBalance,
+      equity,
+    });
+  };
+  const risk = (form.balance * form.riskPercent) / 100;
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
