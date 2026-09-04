@@ -39,6 +39,7 @@ export async function PATCH(
   const exitPrice = cleanTradeNumber(rawExitPrice, { positive: true });
   const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
   const pnl = cleanTradeNumber(formData.get('pnl'));
+  const maePips = cleanTradeNumber(formData.get('maePips'), { limit: 100000 });
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
@@ -48,9 +49,15 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  if (exitPrice === null || resultR === null || pnl === null) {
+  if (
+    exitPrice === null ||
+    resultR === null ||
+    pnl === null ||
+    maePips === null ||
+    maePips < 0
+  ) {
     return Response.json(
-      { error: 'Enter a valid exit price, RR, and P&L' },
+      { error: 'Enter a valid exit price, RR, P&L, and MAE' },
       { status: 400 },
     );
   }
@@ -90,6 +97,7 @@ export async function PATCH(
       exit_price: exitPrice,
       result_r: resultR,
       pnl,
+      mae_pips: maePips,
       notes,
       post_image_path: nextPostImagePath,
       completed_at: new Date().toISOString(),

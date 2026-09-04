@@ -24,7 +24,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('trades')
     .select(
-      'id, account_id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, exit_price, result_r, pnl, notes, image_path, post_image_path, outcome, completed_at, created_at',
+      'id, account_id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, lot_size, exit_price, result_r, pnl, mae_pips, notes, image_path, post_image_path, outcome, completed_at, created_at',
     )
     .order('trade_date', { ascending: false })
     .order('trade_time', { ascending: false })
@@ -60,9 +60,11 @@ export async function GET() {
       direction: row.direction,
       entryPrice: Number(row.entry_price),
       stopLoss: Number(row.stop_loss),
+      lotSize: row.lot_size === null ? null : Number(row.lot_size),
       exitPrice: row.exit_price === null ? null : Number(row.exit_price),
       resultR: Number(row.result_r),
       pnl: Number(row.pnl),
+      maePips: row.mae_pips === null ? null : Number(row.mae_pips),
       notes: row.notes,
       imageUrl: signedImages[index][0],
       postImageUrl: signedImages[index][1],
@@ -98,6 +100,10 @@ export async function POST(request: Request) {
   const stopLoss = cleanTradeNumber(formData.get('stopLoss'), {
     positive: true,
   });
+  const lotSize = cleanTradeNumber(formData.get('lotSize'), {
+    positive: true,
+    limit: 100000,
+  });
   const rawExitPrice = formData.get('exitPrice');
   const exitPrice =
     typeof rawExitPrice === 'string' && rawExitPrice.trim() === ''
@@ -130,12 +136,13 @@ export async function POST(request: Request) {
   if (
     entryPrice === null ||
     stopLoss === null ||
+    lotSize === null ||
     invalidExitPrice ||
     resultR === null ||
     pnl === null
   ) {
     return Response.json(
-      { error: 'Check the trade prices, RR, and P&L' },
+      { error: 'Check the trade prices, lot size, RR, and P&L' },
       { status: 400 },
     );
   }
@@ -168,6 +175,7 @@ export async function POST(request: Request) {
     direction,
     entry_price: entryPrice,
     stop_loss: stopLoss,
+    lot_size: lotSize,
     exit_price: exitPrice,
     result_r: resultR,
     pnl,

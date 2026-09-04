@@ -103,9 +103,11 @@ type SavedTrade = {
   direction: 'Buy' | 'Sell';
   entryPrice: number;
   stopLoss: number;
+  lotSize: number | null;
   exitPrice: number | null;
   resultR: number;
   pnl: number;
+  maePips: number | null;
   notes: string;
   imageUrl: string | null;
   postImageUrl: string | null;
@@ -2177,8 +2179,12 @@ function JournalDayDialog({
                   <span className="text-xs text-muted-foreground">
                     {accountById.get(trade.accountId)?.name ??
                       'Deleted account'}{' '}
-                    · {trade.resultR > 0 ? '+' : ''}
+                    · {trade.lotSize === null ? '—' : `${trade.lotSize} lots`} ·{' '}
+                    {trade.resultR > 0 ? '+' : ''}
                     {trade.resultR}R
+                    {trade.maePips === null
+                      ? ''
+                      : ` · MAE ${trade.maePips} pips`}
                   </span>
                 </div>
                 {screenshots.length ? (
@@ -2340,7 +2346,7 @@ function LiveTradeHistory({
                           </Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:grid-cols-7">
                         <TradeValue
                           label="Entry"
                           value={trade.entryPrice.toFixed(5)}
@@ -2348,6 +2354,14 @@ function LiveTradeHistory({
                         <TradeValue
                           label="Stop"
                           value={trade.stopLoss.toFixed(5)}
+                        />
+                        <TradeValue
+                          label="Lot size"
+                          value={
+                            trade.lotSize === null
+                              ? '—'
+                              : trade.lotSize.toFixed(2)
+                          }
                         />
                         <TradeValue
                           label="Exit"
@@ -2370,6 +2384,16 @@ function LiveTradeHistory({
                               : 'Pending'
                           }
                           tone={trade.outcome ? trade.pnl : undefined}
+                        />
+                        <TradeValue
+                          label="MAE"
+                          value={
+                            trade.outcome
+                              ? trade.maePips === null
+                                ? '—'
+                                : `${trade.maePips} pips`
+                              : 'Pending'
+                          }
                         />
                       </div>
                       {trade.notes ? (
@@ -2481,6 +2505,7 @@ function CompleteTradeDialog({
   );
   const [resultR, setResultR] = useState(trade?.resultR.toString() ?? '0');
   const [pnl, setPnl] = useState(trade?.pnl.toString() ?? '0');
+  const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
   const [notes, setNotes] = useState(trade?.notes ?? '');
   const [postImage, setPostImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -2506,6 +2531,7 @@ function CompleteTradeDialog({
     payload.set('exitPrice', exitPrice);
     payload.set('resultR', resultR);
     payload.set('pnl', pnl);
+    payload.set('maePips', maePips);
     payload.set('notes', notes);
     if (postImage) payload.set('postImage', postImage);
     const response = await fetch(`/api/trades/${trade.id}`, {
@@ -2574,6 +2600,19 @@ function CompleteTradeDialog({
                   const next = event.target.value.replace(',', '.');
                   if (/^-?\d*(?:\.\d*)?$/.test(next)) setPnl(next);
                 }}
+              />
+            </Field>
+            <Field label="MAE (pips)">
+              <Input
+                required
+                type="number"
+                inputMode="decimal"
+                min="0"
+                max="100000"
+                step="0.1"
+                placeholder="8"
+                value={maePips}
+                onChange={(event) => setMaePips(event.target.value)}
               />
             </Field>
           </div>
@@ -2652,6 +2691,7 @@ function TradeDialog({
     direction: 'Buy' as 'Buy' | 'Sell',
     entryPrice: '',
     stopLoss: '',
+    lotSize: '',
     exitPrice: '',
     resultR: '0',
     pnl: '0',
@@ -2786,6 +2826,21 @@ function TradeDialog({
                 value={form.stopLoss}
                 onChange={(event) =>
                   setForm({ ...form, stopLoss: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Lot size">
+              <Input
+                required
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                max="100000"
+                step="0.01"
+                placeholder="0.10"
+                value={form.lotSize}
+                onChange={(event) =>
+                  setForm({ ...form, lotSize: event.target.value })
                 }
               />
             </Field>
