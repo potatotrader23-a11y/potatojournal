@@ -24,7 +24,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('trades')
     .select(
-      'id, account_id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, exit_price, result_r, pnl, notes, image_path, created_at',
+      'id, account_id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, exit_price, result_r, pnl, notes, image_path, post_image_path, outcome, completed_at, created_at',
     )
     .order('trade_date', { ascending: false })
     .order('trade_time', { ascending: false })
@@ -35,11 +35,16 @@ export async function GET() {
   const rows = data ?? [];
   const signedImages = await Promise.all(
     rows.map(async (row) => {
-      if (!row.image_path) return null;
-      const { data: signed } = await supabase.storage
-        .from('trade-images')
-        .createSignedUrl(row.image_path, 3600);
-      return signed?.signedUrl ?? null;
+      const paths = [row.image_path, row.post_image_path];
+      return Promise.all(
+        paths.map(async (path) => {
+          if (!path) return null;
+          const { data: signed } = await supabase.storage
+            .from('trade-images')
+            .createSignedUrl(path, 3600);
+          return signed?.signedUrl ?? null;
+        }),
+      );
     }),
   );
 
@@ -59,7 +64,10 @@ export async function GET() {
       resultR: Number(row.result_r),
       pnl: Number(row.pnl),
       notes: row.notes,
-      imageUrl: signedImages[index],
+      imageUrl: signedImages[index][0],
+      postImageUrl: signedImages[index][1],
+      outcome: row.outcome,
+      completedAt: row.completed_at,
       createdAt: row.created_at,
     })),
   );

@@ -108,6 +108,9 @@ type SavedTrade = {
   pnl: number;
   notes: string;
   imageUrl: string | null;
+  postImageUrl: string | null;
+  outcome: 'Win' | 'Loss' | 'Breakeven' | null;
+  completedAt: string | null;
   createdAt: string;
 };
 type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
@@ -1858,11 +1861,13 @@ function Journal({
   onChanged: () => Promise<void>;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [completeTarget, setCompleteTarget] = useState<SavedTrade | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedTrade | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const wins = trades.filter((item) => item.resultR > 0).length;
-  const netR = trades.reduce((total, item) => total + item.resultR, 0);
-  const netPnl = trades.reduce((total, item) => total + item.pnl, 0);
+  const completed = trades.filter((item) => item.outcome !== null);
+  const wins = completed.filter((item) => item.outcome === 'Win').length;
+  const netR = completed.reduce((total, item) => total + item.resultR, 0);
+  const netPnl = completed.reduce((total, item) => total + item.pnl, 0);
   const oneCurrency =
     accounts.length > 0 &&
     accounts.every((account) => account.currency === accounts[0].currency);
@@ -1917,8 +1922,8 @@ function Journal({
           value={
             loading
               ? '…'
-              : trades.length
-                ? `${Math.round((wins / trades.length) * 100)}%`
+              : completed.length
+                ? `${Math.round((wins / completed.length) * 100)}%`
                 : '—'
           }
           detail={`${wins} winning trade${wins === 1 ? '' : 's'}`}
@@ -1930,7 +1935,7 @@ function Journal({
           value={
             loading
               ? '…'
-              : trades.length
+              : completed.length
                 ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
                 : '—'
           }
@@ -1943,7 +1948,7 @@ function Journal({
           value={
             loading
               ? '…'
-              : trades.length && oneCurrency
+              : completed.length && oneCurrency
                 ? money(netPnl, accounts[0].currency)
                 : '—'
           }
@@ -1959,6 +1964,7 @@ function Journal({
         trades={trades}
         loading={loading}
         onAdd={() => setDialogOpen(true)}
+        onComplete={setCompleteTarget}
         onDelete={setDeleteTarget}
       />
       <TradeDialog
@@ -1967,6 +1973,15 @@ function Journal({
         onOpenChange={setDialogOpen}
         accounts={accounts}
         activeAccountId={activeAccountId}
+        onSaved={onChanged}
+      />
+      <CompleteTradeDialog
+        key={completeTarget?.id ?? 'no-trade'}
+        trade={completeTarget}
+        account={accounts.find(
+          (account) => account.id === completeTarget?.accountId,
+        )}
+        onOpenChange={(open) => !open && setCompleteTarget(null)}
         onSaved={onChanged}
       />
       <AlertDialog
@@ -1998,12 +2013,14 @@ function LiveTradeHistory({
   trades,
   loading,
   onAdd,
+  onComplete,
   onDelete,
 }: {
   accounts: TradingAccount[];
   trades: SavedTrade[];
   loading: boolean;
   onAdd: () => void;
+  onComplete: (trade: SavedTrade) => void;
   onDelete: (trade: SavedTrade) => void;
 }) {
   const accountById = new Map(accounts.map((account) => [account.id, account]));
@@ -2065,6 +2082,18 @@ function LiveTradeHistory({
                             {trade.direction}
                           </Badge>
                           <Badge variant="secondary">London · 15m</Badge>
+                          <Badge
+                            variant="outline"
+                            className={
+                              trade.outcome === 'Win'
+                                ? 'text-emerald-500'
+                                : trade.outcome === 'Loss'
+                                  ? 'text-destructive'
+                                  : ''
+                            }
+                          >
+                            {trade.outcome ?? 'Open'}
+                          </Badge>
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {formatBacktestDate(trade.tradeDate)} ·{' '}
@@ -2072,15 +2101,26 @@ function LiveTradeHistory({
                           {account?.name ?? 'Deleted account'}
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Delete trade"
-                        onClick={() => onDelete(trade)}
-                      >
-                        <Trash2 />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant={trade.outcome ? 'ghost' : 'default'}
+                          size="sm"
+                          onClick={() => onComplete(trade)}
+                        >
+                          {trade.outcome ? <Pencil /> : <Check />}
+                          {trade.outcome ? 'Edit result' : 'Complete trade'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete trade"
+                          onClick={() => onDelete(trade)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
                       <TradeValue
@@ -2093,23 +2133,42 @@ function LiveTradeHistory({
                       />
                       <TradeValue
                         label="Exit"
-                        value={trade.exitPrice?.toFixed(5) ?? 'Open'}
+                        value={trade.exitPrice?.toFixed(5) ?? '—'}
                       />
                       <TradeValue
                         label="RR"
-                        value={`${trade.resultR > 0 ? '+' : ''}${trade.resultR}R`}
-                        tone={trade.resultR}
+                        value={
+                          trade.outcome
+                            ? `${trade.resultR > 0 ? '+' : ''}${trade.resultR}R`
+                            : 'Pending'
+                        }
+                        tone={trade.outcome ? trade.resultR : undefined}
                       />
                       <TradeValue
                         label="P&L"
-                        value={money(trade.pnl, account?.currency ?? 'USD')}
-                        tone={trade.pnl}
+                        value={
+                          trade.outcome
+                            ? money(trade.pnl, account?.currency ?? 'USD')
+                            : 'Pending'
+                        }
+                        tone={trade.outcome ? trade.pnl : undefined}
                       />
                     </div>
                     {trade.notes ? (
                       <p className="mt-3 whitespace-pre-wrap rounded-xl bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
                         {trade.notes}
                       </p>
+                    ) : null}
+                    {trade.postImageUrl ? (
+                      <a
+                        href={trade.postImageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+                      >
+                        <ImagePlus className="size-3.5" /> View post-trade
+                        screenshot
+                      </a>
                     ) : null}
                   </div>
                 </div>
@@ -2155,6 +2214,174 @@ function TradeValue({
         {value}
       </p>
     </div>
+  );
+}
+
+function CompleteTradeDialog({
+  trade,
+  account,
+  onOpenChange,
+  onSaved,
+}: {
+  trade: SavedTrade | null;
+  account: TradingAccount | undefined;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [outcome, setOutcome] = useState<'' | 'Win' | 'Loss' | 'Breakeven'>(
+    trade?.outcome ?? '',
+  );
+  const [exitPrice, setExitPrice] = useState(
+    trade?.exitPrice?.toString() ?? '',
+  );
+  const [resultR, setResultR] = useState(trade?.resultR.toString() ?? '0');
+  const [pnl, setPnl] = useState(trade?.pnl.toString() ?? '0');
+  const [notes, setNotes] = useState(trade?.notes ?? '');
+  const [postImage, setPostImage] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const chooseOutcome = (next: 'Win' | 'Loss' | 'Breakeven') => {
+    setOutcome(next);
+    const nextR = next === 'Win' ? 1 : next === 'Loss' ? -1 : 0;
+    setResultR(String(nextR));
+    if (account) {
+      const riskAmount = (account.balance * account.riskPercent) / 100;
+      setPnl(String(Math.round(riskAmount * nextR * 100) / 100));
+    } else {
+      setPnl('0');
+    }
+  };
+  const save = async (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!trade || !outcome) return;
+    setSaving(true);
+    setError('');
+    const payload = new FormData();
+    payload.set('outcome', outcome);
+    payload.set('exitPrice', exitPrice);
+    payload.set('resultR', resultR);
+    payload.set('pnl', pnl);
+    payload.set('notes', notes);
+    if (postImage) payload.set('postImage', postImage);
+    const response = await fetch(`/api/trades/${trade.id}`, {
+      method: 'PATCH',
+      body: payload,
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      setError(body.error ?? 'Unable to complete this trade');
+      setSaving(false);
+      return;
+    }
+    await onSaved();
+    setSaving(false);
+    onOpenChange(false);
+  };
+  return (
+    <Dialog open={Boolean(trade)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>
+            {trade?.outcome ? 'Edit trade result' : 'Complete trade'}
+          </DialogTitle>
+          <DialogDescription>
+            Mark the outcome and add your post-trade GBPUSD screenshot.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-5">
+          <Field label="Outcome">
+            <div className="grid grid-cols-3 gap-2">
+              {(['Win', 'Loss', 'Breakeven'] as const).map((option) => (
+                <Button
+                  key={option}
+                  type="button"
+                  variant={outcome === option ? 'default' : 'outline'}
+                  onClick={() => chooseOutcome(option)}
+                >
+                  {option}
+                </Button>
+              ))}
+            </div>
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Exit price">
+              <Input
+                required
+                type="number"
+                inputMode="decimal"
+                step="0.00001"
+                min="0.00001"
+                placeholder="1.28000"
+                value={exitPrice}
+                onChange={(event) => setExitPrice(event.target.value)}
+              />
+            </Field>
+            <SignedRField value={resultR} onChange={setResultR} />
+            <Field label={`P&L${account ? ` (${account.currency})` : ''}`}>
+              <Input
+                required
+                type="text"
+                inputMode="decimal"
+                value={pnl}
+                onChange={(event) => {
+                  const next = event.target.value.replace(',', '.');
+                  if (/^-?\d*(?:\.\d*)?$/.test(next)) setPnl(next);
+                }}
+              />
+            </Field>
+          </div>
+          <Field label="Post-trade screenshot">
+            <label
+              htmlFor="post-trade-image"
+              className="flex min-h-24 cursor-pointer items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-4 text-center transition hover:border-primary/45 hover:bg-primary/5"
+            >
+              <span className="text-xs text-muted-foreground">
+                <ImagePlus className="mx-auto mb-2 size-5 text-primary" />
+                {postImage
+                  ? postImage.name
+                  : trade?.postImageUrl
+                    ? 'Choose a new image, or keep the current screenshot'
+                    : 'Upload the chart after the trade · max 5 MB'}
+              </span>
+            </label>
+            <Input
+              id="post-trade-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={(event) =>
+                setPostImage(event.target.files?.[0] ?? null)
+              }
+            />
+          </Field>
+          <Field label="Post-trade notes">
+            <Textarea
+              maxLength={5000}
+              rows={5}
+              placeholder="What happened, what you managed well, and what you would change…"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </Field>
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !outcome}>
+              {saving ? 'Saving…' : 'Save result'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2329,16 +2556,17 @@ function TradeDialog({
               />
             </Field>
             <SignedRField
+              label="Current RR (0 while open)"
               value={form.resultR}
               onChange={(value) => setForm({ ...form, resultR: value })}
             />
-            <Field label="P&L">
+            <Field label="Current P&L (0 while open)">
               {signedValue(form.pnl, (value) =>
                 setForm({ ...form, pnl: value }),
               )}
             </Field>
           </div>
-          <Field label="Chart image (optional)">
+          <Field label="Entry screenshot (optional)">
             <label
               htmlFor="trade-image"
               className="flex min-h-24 cursor-pointer items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-4 text-center transition hover:border-primary/45 hover:bg-primary/5"
@@ -2409,11 +2637,24 @@ function Analytics({
   const worst = backtests.length
     ? Math.min(...backtests.map((item) => item.resultR))
     : null;
-  const liveWins = trades.filter((item) => item.resultR > 0).length;
-  const liveLosses = trades.filter((item) => item.resultR < 0).length;
-  const liveBreakeven = trades.length - liveWins - liveLosses;
-  const liveNetR = trades.reduce((total, item) => total + item.resultR, 0);
-  const liveNetPnl = trades.reduce((total, item) => total + item.pnl, 0);
+  const completedTrades = trades.filter((item) => item.outcome !== null);
+  const liveWins = completedTrades.filter(
+    (item) => item.outcome === 'Win',
+  ).length;
+  const liveLosses = completedTrades.filter(
+    (item) => item.outcome === 'Loss',
+  ).length;
+  const liveBreakeven = completedTrades.filter(
+    (item) => item.outcome === 'Breakeven',
+  ).length;
+  const liveNetR = completedTrades.reduce(
+    (total, item) => total + item.resultR,
+    0,
+  );
+  const liveNetPnl = completedTrades.reduce(
+    (total, item) => total + item.pnl,
+    0,
+  );
   const oneCurrency =
     accounts.length > 0 &&
     accounts.every((account) => account.currency === accounts[0].currency);
@@ -2473,15 +2714,15 @@ function Analytics({
             <AnalyticsRow
               label="Win rate"
               value={
-                trades.length
-                  ? `${Math.round((liveWins / trades.length) * 100)}%`
+                completedTrades.length
+                  ? `${Math.round((liveWins / completedTrades.length) * 100)}%`
                   : '—'
               }
             />
             <AnalyticsRow
               label="Net RR"
               value={
-                trades.length
+                completedTrades.length
                   ? `${liveNetR > 0 ? '+' : ''}${liveNetR.toFixed(1)}R`
                   : '—'
               }
@@ -2490,7 +2731,7 @@ function Analytics({
             <AnalyticsRow
               label="Net P&L"
               value={
-                trades.length && oneCurrency
+                completedTrades.length && oneCurrency
                   ? money(liveNetPnl, accounts[0].currency)
                   : '—'
               }
@@ -2648,15 +2889,17 @@ function NumberField({
   );
 }
 function SignedRField({
+  label = 'RR / trade result',
   value,
   onChange,
 }: {
+  label?: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   const presets = ['-1', '0', '1', '2', '3'];
   return (
-    <Field label="RR / trade result">
+    <Field label={label}>
       <div className="flex gap-2">
         <Input
           type="text"
