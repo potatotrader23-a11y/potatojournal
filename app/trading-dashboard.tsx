@@ -460,8 +460,15 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
 
 function Logo() {
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#3A86FF] to-[#706DFF] text-[15px] font-black text-white shadow-[0_8px_24px_rgba(58,134,255,.22)]">
-      P
+    <span className="relative block size-9 shrink-0 overflow-hidden rounded-xl shadow-[0_8px_24px_rgba(58,134,255,.22)]">
+      <Image
+        src="/potatojournal-logo.png"
+        alt=""
+        fill
+        sizes="36px"
+        className="object-contain"
+        aria-hidden="true"
+      />
     </span>
   );
 }

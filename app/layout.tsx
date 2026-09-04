@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   title: 'Potato Journal — Trading OS',
   description:
     'An advanced trading journal for deliberate, data-driven performance.',
+  icons: {
+    icon: '/potatojournal-logo.png',
+    apple: '/potatojournal-logo.png',
+  },
 };
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 'use client';
 
 import { type SyntheticEvent, useState } from 'react';
+import Image from 'next/image';
 import {
   ArrowRight,
   BarChart3,
@@ -74,8 +75,16 @@ export function LoginForm({
         <div className="absolute -left-32 top-24 size-[420px] rounded-full bg-primary/15 blur-3xl" />
         <div className="absolute -bottom-32 right-0 size-[420px] rounded-full bg-secondary/15 blur-3xl" />
         <div className="relative flex items-center gap-3">
-          <span className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-[#3A86FF] to-[#706DFF] text-xl font-black text-white shadow-[0_14px_40px_rgba(58,134,255,.3)]">
-            P
+          <span className="relative block size-12 shrink-0 overflow-hidden rounded-2xl shadow-[0_14px_40px_rgba(58,134,255,.3)]">
+            <Image
+              src="/potatojournal-logo.png"
+              alt=""
+              fill
+              sizes="48px"
+              className="object-contain"
+              aria-hidden="true"
+              priority
+            />
           </span>
           <div>
             <p className="font-semibold">Potato Journal</p>
@@ -124,8 +133,16 @@ export function LoginForm({
       <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
         <div className="w-full max-w-[430px]">
           <div className="mb-9 flex items-center gap-3 lg:hidden">
-            <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-[#3A86FF] to-[#706DFF] font-black text-white">
-              P
+            <span className="relative block size-11 shrink-0 overflow-hidden rounded-xl">
+              <Image
+                src="/potatojournal-logo.png"
+                alt=""
+                fill
+                sizes="44px"
+                className="object-contain"
+                aria-hidden="true"
+                priority
+              />
             </span>
             <span className="font-semibold">Potato Journal</span>
           </div>
