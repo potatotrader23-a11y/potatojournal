@@ -4,7 +4,6 @@ import { type SyntheticEvent, useEffect, useState } from 'react';
 import Image from 'next/image';
 import {
   Activity,
-  ArrowRight,
   BarChart3,
   BookOpenCheck,
   BriefcaseBusiness,
@@ -53,6 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -92,13 +92,55 @@ type SavedBacktest = {
   imageUrl: string | null;
   createdAt: string;
 };
+type SavedTrade = {
+  id: string;
+  accountId: string;
+  instrument: 'GBPUSD';
+  session: 'London';
+  timeframe: '15m';
+  tradeDate: string;
+  tradeTime: string;
+  direction: 'Buy' | 'Sell';
+  entryPrice: number;
+  stopLoss: number;
+  exitPrice: number | null;
+  resultR: number;
+  pnl: number;
+  notes: string;
+  imageUrl: string | null;
+  createdAt: string;
+};
 type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const londonToday = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+const londonTime = () =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date());
 async function fetchBacktests() {
   const response = await fetch('/api/backtests');
   if (!response.ok) throw new Error('Unable to load backtests');
   return (await response.json()) as SavedBacktest[];
+}
+async function fetchAccounts() {
+  const response = await fetch('/api/accounts');
+  if (!response.ok) throw new Error('Unable to load accounts');
+  return (await response.json()) as TradingAccount[];
+}
+async function fetchTrades() {
+  const response = await fetch('/api/trades');
+  if (!response.ok) throw new Error('Unable to load trades');
+  return (await response.json()) as SavedTrade[];
 }
 
 const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
@@ -121,6 +163,8 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [backtestsLoading, setBacktestsLoading] = useState(true);
+  const [trades, setTrades] = useState<SavedTrade[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(true);
   const [activeId, setActiveId] = useState('');
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [light, setLight] = useState(false);
@@ -139,6 +183,14 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
     const supabase = createClient();
     await supabase.auth.signOut();
     window.location.assign('/login');
+  };
+  const refreshLiveJournal = async () => {
+    const [savedAccounts, savedTrades] = await Promise.all([
+      fetchAccounts(),
+      fetchTrades(),
+    ]);
+    setAccounts(savedAccounts);
+    setTrades(savedTrades);
   };
 
   useEffect(() => {
@@ -186,9 +238,8 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
     return () => lifecycle.abort();
   }, []);
   useEffect(() => {
-    void fetch('/api/accounts')
-      .then((response) => (response.ok ? response.json() : []))
-      .then((saved: TradingAccount[]) => {
+    void fetchAccounts()
+      .then((saved) => {
         setAccounts(saved);
         setActiveId(saved[0]?.id ?? '');
         setCompareIds(saved.slice(0, 2).map((account) => account.id));
@@ -199,6 +250,10 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
       .then(setBacktests)
       .catch(() => setBacktests([]))
       .finally(() => setBacktestsLoading(false));
+    void fetchTrades()
+      .then(setTrades)
+      .catch(() => setTrades([]))
+      .finally(() => setTradesLoading(false));
   }, []);
   const openAccount = (account?: TradingAccount) => {
     setEditing(account ?? null);
@@ -371,13 +426,19 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
           )}{' '}
           {view === 'journal' && (
             <Journal
-              backtests={backtests}
-              loading={backtestsLoading}
-              onLog={() => setView('backtesting')}
+              accounts={accounts}
+              trades={trades}
+              loading={accountsLoading || tradesLoading}
+              activeAccountId={active?.id ?? ''}
+              onChanged={refreshLiveJournal}
             />
           )}{' '}
           {view === 'analytics' && (
-            <Analytics accounts={accounts} backtests={backtests} />
+            <Analytics
+              accounts={accounts}
+              backtests={backtests}
+              trades={trades}
+            />
           )}
         </div>
       </section>
@@ -801,91 +862,6 @@ function RiskRow({
         />
       </div>
     </div>
-  );
-}
-function RecentBacktests({
-  backtests,
-  loading,
-  onOpen,
-}: {
-  backtests: SavedBacktest[];
-  loading: boolean;
-  onOpen: () => void;
-}) {
-  const recent = backtests.slice(0, 6);
-  return (
-    <article className="surface overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <div>
-          <h2 className="text-sm font-medium">Recent backtests</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Your latest saved GBPUSD results
-          </p>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onOpen}>
-          Open backtesting <ArrowRight />
-        </Button>
-      </div>
-      {loading ? (
-        <div className="grid min-h-44 place-items-center">
-          <Activity className="size-4 animate-spin text-primary" />
-        </div>
-      ) : recent.length ? (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left">
-            <thead className="text-[10px] uppercase tracking-[.13em] text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3 font-medium">Date</th>
-                <th className="py-3 font-medium">Market</th>
-                <th className="py-3 font-medium">Outcome</th>
-                <th className="px-5 py-3 text-right font-medium">Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((item) => (
-                <tr key={item.id} className="border-t border-border text-xs">
-                  <td className="px-5 py-3.5 text-muted-foreground">
-                    {formatBacktestDate(item.backtestDate)}
-                  </td>
-                  <td className="py-3.5 font-semibold">GBPUSD</td>
-                  <td className="py-3.5">
-                    <span
-                      className={
-                        item.resultR > 0
-                          ? 'text-emerald-500'
-                          : item.resultR < 0
-                            ? 'text-destructive'
-                            : 'text-muted-foreground'
-                      }
-                    >
-                      {item.resultR > 0
-                        ? 'Win'
-                        : item.resultR < 0
-                          ? 'Loss'
-                          : 'Breakeven'}
-                    </span>
-                  </td>
-                  <td
-                    className={`px-5 py-3.5 text-right font-semibold ${item.resultR > 0 ? 'text-emerald-500' : item.resultR < 0 ? 'text-destructive' : ''}`}
-                  >
-                    {item.resultR > 0 ? '+' : ''}
-                    {item.resultR}R
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="px-5 py-10 text-center">
-          <BookOpenCheck className="mx-auto size-5 text-primary" />
-          <p className="mt-3 text-sm font-medium">No results yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Log your first backtest to populate the overview.
-          </p>
-        </div>
-      )}
-    </article>
   );
 }
 function EmptyAccountCard({
@@ -1869,34 +1845,71 @@ function formatBacktestDate(value: string) {
   });
 }
 function Journal({
-  backtests,
+  accounts,
+  trades,
   loading,
-  onLog,
+  activeAccountId,
+  onChanged,
 }: {
-  backtests: SavedBacktest[];
+  accounts: TradingAccount[];
+  trades: SavedTrade[];
   loading: boolean;
-  onLog: () => void;
+  activeAccountId: string;
+  onChanged: () => Promise<void>;
 }) {
-  const wins = backtests.filter((item) => item.resultR > 0).length;
-  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
-  const averageR = backtests.length ? netR / backtests.length : 0;
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SavedTrade | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const wins = trades.filter((item) => item.resultR > 0).length;
+  const netR = trades.reduce((total, item) => total + item.resultR, 0);
+  const netPnl = trades.reduce((total, item) => total + item.pnl, 0);
+  const oneCurrency =
+    accounts.length > 0 &&
+    accounts.every((account) => account.currency === accounts[0].currency);
+  const deleteTrade = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const response = await fetch(`/api/trades/${deleteTarget.id}`, {
+      method: 'DELETE',
+    });
+    if (response.ok) {
+      await onChanged();
+      setDeleteTarget(null);
+    }
+    setDeleting(false);
+  };
   return (
     <>
       <PageHeading
-        eyebrow="Execution record"
-        title="Trading journal"
-        description="Review your saved GBPUSD backtest results without demo data or invented statistics."
+        eyebrow="Live execution record"
+        title="GBPUSD trading journal"
+        description="Your London-session, 15-minute live trades. Backtests stay in their own workspace."
         action={
-          <Button onClick={onLog}>
-            <Plus /> Log backtest
+          <Button
+            onClick={() => setDialogOpen(true)}
+            disabled={!accounts.length}
+          >
+            <Plus /> Add trade
           </Button>
         }
       />
+      {!loading && !accounts.length ? (
+        <div className="surface mb-4 border-dashed p-6 text-center">
+          <WalletCards className="mx-auto size-6 text-primary" />
+          <h2 className="mt-3 text-sm font-semibold">
+            Add a live account first
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Every live trade must belong to one trading account so its P&amp;L
+            and equity stay separate.
+          </p>
+        </div>
+      ) : null}
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Saved results"
-          value={loading ? '…' : `${backtests.length}`}
-          detail="GBPUSD backtests"
+          label="Live trades"
+          value={loading ? '…' : `${trades.length}`}
+          detail="GBPUSD · London · 15m"
           icon={BookOpenCheck}
         />
         <Metric
@@ -1904,46 +1917,487 @@ function Journal({
           value={
             loading
               ? '…'
-              : backtests.length
-                ? `${Math.round((wins / backtests.length) * 100)}%`
+              : trades.length
+                ? `${Math.round((wins / trades.length) * 100)}%`
                 : '—'
           }
-          detail={`${wins} winning result${wins === 1 ? '' : 's'}`}
+          detail={`${wins} winning trade${wins === 1 ? '' : 's'}`}
           positive={wins > 0}
           icon={Target}
         />
         <Metric
-          label="Average result"
-          value={
-            loading ? '…' : backtests.length ? `${averageR.toFixed(2)}R` : '—'
-          }
-          detail="Across saved backtests"
-          icon={TrendingUp}
-        />
-        <Metric
-          label="Net result"
+          label="Net RR"
           value={
             loading
               ? '…'
-              : backtests.length
+              : trades.length
                 ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
                 : '—'
           }
-          detail="Cumulative RR"
+          detail="Cumulative live-trade result"
           positive={netR > 0}
-          icon={netR < 0 ? TrendingDown : BarChart3}
+          icon={TrendingUp}
+        />
+        <Metric
+          label="Net P&L"
+          value={
+            loading
+              ? '…'
+              : trades.length && oneCurrency
+                ? money(netPnl, accounts[0].currency)
+                : '—'
+          }
+          detail={
+            oneCurrency ? 'Across your live accounts' : 'Mixed currencies'
+          }
+          positive={netPnl > 0}
+          icon={netPnl < 0 ? TrendingDown : BarChart3}
         />
       </div>
-      <RecentBacktests backtests={backtests} loading={loading} onOpen={onLog} />
+      <LiveTradeHistory
+        accounts={accounts}
+        trades={trades}
+        loading={loading}
+        onAdd={() => setDialogOpen(true)}
+        onDelete={setDeleteTarget}
+      />
+      <TradeDialog
+        key={`${dialogOpen}-${activeAccountId}`}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        accounts={accounts}
+        activeAccountId={activeAccountId}
+        onSaved={onChanged}
+      />
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this live trade?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The trade, note, and chart image will be removed. Its P&amp;L will
+              also be reversed from the linked account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={deleting} onClick={deleteTrade}>
+              {deleting ? 'Deleting…' : 'Delete trade'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  );
+}
+
+function LiveTradeHistory({
+  accounts,
+  trades,
+  loading,
+  onAdd,
+  onDelete,
+}: {
+  accounts: TradingAccount[];
+  trades: SavedTrade[];
+  loading: boolean;
+  onAdd: () => void;
+  onDelete: (trade: SavedTrade) => void;
+}) {
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  return (
+    <article className="surface overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div>
+          <h2 className="text-sm font-medium">Trade history</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Live trades only · newest first
+          </p>
+        </div>
+        <Badge variant="outline">{trades.length} entries</Badge>
+      </div>
+      {loading ? (
+        <div className="grid min-h-52 place-items-center">
+          <Activity className="size-4 animate-spin text-primary" />
+        </div>
+      ) : trades.length ? (
+        <div className="divide-y divide-border">
+          {trades.map((trade) => {
+            const account = accountById.get(trade.accountId);
+            return (
+              <div key={trade.id} className="p-4 sm:p-5">
+                <div className="flex flex-col gap-4 sm:flex-row">
+                  {trade.imageUrl ? (
+                    <a
+                      href={trade.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="relative h-32 w-full shrink-0 overflow-hidden rounded-xl border border-border bg-muted sm:h-24 sm:w-36"
+                    >
+                      <Image
+                        src={trade.imageUrl}
+                        alt={`GBPUSD chart from ${formatBacktestDate(trade.tradeDate)}`}
+                        fill
+                        sizes="(max-width: 640px) 100vw, 144px"
+                        className="object-cover"
+                      />
+                    </a>
+                  ) : (
+                    <div className="grid h-24 w-full shrink-0 place-items-center rounded-xl border border-dashed border-border bg-muted/35 sm:w-36">
+                      <ImagePlus className="size-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold">GBPUSD</span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              trade.direction === 'Buy'
+                                ? 'text-emerald-500'
+                                : 'text-destructive'
+                            }
+                          >
+                            {trade.direction}
+                          </Badge>
+                          <Badge variant="secondary">London · 15m</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatBacktestDate(trade.tradeDate)} ·{' '}
+                          {trade.tradeTime} ·{' '}
+                          {account?.name ?? 'Deleted account'}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Delete trade"
+                        onClick={() => onDelete(trade)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                      <TradeValue
+                        label="Entry"
+                        value={trade.entryPrice.toFixed(5)}
+                      />
+                      <TradeValue
+                        label="Stop"
+                        value={trade.stopLoss.toFixed(5)}
+                      />
+                      <TradeValue
+                        label="Exit"
+                        value={trade.exitPrice?.toFixed(5) ?? 'Open'}
+                      />
+                      <TradeValue
+                        label="RR"
+                        value={`${trade.resultR > 0 ? '+' : ''}${trade.resultR}R`}
+                        tone={trade.resultR}
+                      />
+                      <TradeValue
+                        label="P&L"
+                        value={money(trade.pnl, account?.currency ?? 'USD')}
+                        tone={trade.pnl}
+                      />
+                    </div>
+                    {trade.notes ? (
+                      <p className="mt-3 whitespace-pre-wrap rounded-xl bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+                        {trade.notes}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="px-5 py-12 text-center">
+          <BookOpenCheck className="mx-auto size-6 text-primary" />
+          <p className="mt-3 text-sm font-medium">No live trades yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Add your first GBPUSD London-session trade.
+          </p>
+          {accounts.length ? (
+            <Button size="sm" className="mt-4" onClick={onAdd}>
+              <Plus /> Add trade
+            </Button>
+          ) : null}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function TradeValue({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: number;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/40 px-2.5 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 font-semibold ${tone && tone > 0 ? 'text-emerald-500' : tone && tone < 0 ? 'text-destructive' : ''}`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function TradeDialog({
+  open,
+  onOpenChange,
+  accounts,
+  activeAccountId,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  accounts: TradingAccount[];
+  activeAccountId: string;
+  onSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    accountId: activeAccountId || accounts[0]?.id || '',
+    tradeDate: londonToday(),
+    tradeTime: londonTime(),
+    direction: 'Buy' as 'Buy' | 'Sell',
+    entryPrice: '',
+    stopLoss: '',
+    exitPrice: '',
+    resultR: '0',
+    pnl: '0',
+    notes: '',
+  });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const save = async (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    const payload = new FormData();
+    Object.entries(form).forEach(([key, value]) => payload.set(key, value));
+    if (imageFile) payload.set('image', imageFile);
+    const response = await fetch('/api/trades', {
+      method: 'POST',
+      body: payload,
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      setError(body.error ?? 'Unable to save this trade');
+      setSaving(false);
+      return;
+    }
+    await onSaved();
+    setSaving(false);
+    onOpenChange(false);
+  };
+  const signedValue = (value: string, onChange: (value: string) => void) => (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={value}
+      onChange={(event) => {
+        const next = event.target.value.replace(',', '.');
+        if (/^-?\d*(?:\.\d*)?$/.test(next)) onChange(next);
+      }}
+    />
+  );
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[680px]">
+        <DialogHeader>
+          <DialogTitle>Add live trade</DialogTitle>
+          <DialogDescription>
+            GBPUSD · London session · 15-minute timeframe
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Trading account">
+              <Select
+                value={form.accountId}
+                onValueChange={(value) =>
+                  value && setForm({ ...form, accountId: value })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Direction">
+              <Select
+                value={form.direction}
+                onValueChange={(value) =>
+                  value &&
+                  setForm({ ...form, direction: value as 'Buy' | 'Sell' })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Buy">Buy</SelectItem>
+                  <SelectItem value="Sell">Sell</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Trade date (London)">
+              <Input
+                required
+                type="date"
+                value={form.tradeDate}
+                onChange={(event) =>
+                  setForm({ ...form, tradeDate: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Trade time (London, 24-hour)">
+              <Input
+                required
+                type="time"
+                value={form.tradeTime}
+                onChange={(event) =>
+                  setForm({ ...form, tradeTime: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Entry price">
+              <Input
+                required
+                type="number"
+                inputMode="decimal"
+                step="0.00001"
+                min="0.00001"
+                placeholder="1.27500"
+                value={form.entryPrice}
+                onChange={(event) =>
+                  setForm({ ...form, entryPrice: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Stop loss">
+              <Input
+                required
+                type="number"
+                inputMode="decimal"
+                step="0.00001"
+                min="0.00001"
+                placeholder="1.27250"
+                value={form.stopLoss}
+                onChange={(event) =>
+                  setForm({ ...form, stopLoss: event.target.value })
+                }
+              />
+            </Field>
+            <Field label="Exit price (optional)">
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.00001"
+                min="0.00001"
+                placeholder="1.28000"
+                value={form.exitPrice}
+                onChange={(event) =>
+                  setForm({ ...form, exitPrice: event.target.value })
+                }
+              />
+            </Field>
+            <SignedRField
+              value={form.resultR}
+              onChange={(value) => setForm({ ...form, resultR: value })}
+            />
+            <Field label="P&L">
+              {signedValue(form.pnl, (value) =>
+                setForm({ ...form, pnl: value }),
+              )}
+            </Field>
+          </div>
+          <Field label="Chart image (optional)">
+            <label
+              htmlFor="trade-image"
+              className="flex min-h-24 cursor-pointer items-center justify-center rounded-xl border border-dashed border-border bg-muted/30 px-4 text-center transition hover:border-primary/45 hover:bg-primary/5"
+            >
+              <span className="text-xs text-muted-foreground">
+                <ImagePlus className="mx-auto mb-2 size-5 text-primary" />
+                {imageFile
+                  ? imageFile.name
+                  : 'Upload PNG, JPEG, or WebP · max 5 MB'}
+              </span>
+            </label>
+            <Input
+              id="trade-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={(event) =>
+                setImageFile(event.target.files?.[0] ?? null)
+              }
+            />
+          </Field>
+          <Field label="Trade notes">
+            <Textarea
+              maxLength={5000}
+              rows={5}
+              placeholder="Why you entered, what you saw, execution mistakes, and what to repeat next time…"
+              value={form.notes}
+              onChange={(event) =>
+                setForm({ ...form, notes: event.target.value })
+              }
+            />
+          </Field>
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !form.accountId}>
+              {saving ? 'Saving…' : 'Save live trade'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 function Analytics({
   accounts,
   backtests,
+  trades,
 }: {
   accounts: TradingAccount[];
   backtests: SavedBacktest[];
+  trades: SavedTrade[];
 }) {
   const wins = backtests.filter((item) => item.resultR > 0).length;
   const losses = backtests.filter((item) => item.resultR < 0).length;
@@ -1955,14 +2409,22 @@ function Analytics({
   const worst = backtests.length
     ? Math.min(...backtests.map((item) => item.resultR))
     : null;
+  const liveWins = trades.filter((item) => item.resultR > 0).length;
+  const liveLosses = trades.filter((item) => item.resultR < 0).length;
+  const liveBreakeven = trades.length - liveWins - liveLosses;
+  const liveNetR = trades.reduce((total, item) => total + item.resultR, 0);
+  const liveNetPnl = trades.reduce((total, item) => total + item.pnl, 0);
+  const oneCurrency =
+    accounts.length > 0 &&
+    accounts.every((account) => account.currency === accounts[0].currency);
   return (
     <>
       <PageHeading
         eyebrow="Cross-account intelligence"
         title="Analytics"
-        description="Performance calculated only from your saved accounts and GBPUSD backtests."
+        description="Live-account and backtest performance are calculated separately from saved data."
       />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-3">
         <article className="surface p-5">
           <h2 className="text-sm font-semibold">Account performance</h2>
           {accounts.length ? (
@@ -1999,6 +2461,45 @@ function Analytics({
               Add a trading account to see balance growth here.
             </p>
           )}
+        </article>
+        <article className="surface p-5">
+          <h2 className="text-sm font-semibold">Live trade outcomes</h2>
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            <OutcomeStat label="Wins" value={liveWins} tone="win" />
+            <OutcomeStat label="Losses" value={liveLosses} tone="loss" />
+            <OutcomeStat label="Breakeven" value={liveBreakeven} />
+          </div>
+          <div className="mt-5 space-y-3 border-t border-border pt-5">
+            <AnalyticsRow
+              label="Win rate"
+              value={
+                trades.length
+                  ? `${Math.round((liveWins / trades.length) * 100)}%`
+                  : '—'
+              }
+            />
+            <AnalyticsRow
+              label="Net RR"
+              value={
+                trades.length
+                  ? `${liveNetR > 0 ? '+' : ''}${liveNetR.toFixed(1)}R`
+                  : '—'
+              }
+              tone={liveNetR > 0 ? 'win' : liveNetR < 0 ? 'loss' : undefined}
+            />
+            <AnalyticsRow
+              label="Net P&L"
+              value={
+                trades.length && oneCurrency
+                  ? money(liveNetPnl, accounts[0].currency)
+                  : '—'
+              }
+              tone={
+                liveNetPnl > 0 ? 'win' : liveNetPnl < 0 ? 'loss' : undefined
+              }
+            />
+            <AnalyticsRow label="Market" value="GBPUSD · London · 15m" />
+          </div>
         </article>
         <article className="surface p-5">
           <h2 className="text-sm font-semibold">Backtest outcomes</h2>
