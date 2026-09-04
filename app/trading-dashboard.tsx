@@ -2024,173 +2024,210 @@ function LiveTradeHistory({
   onDelete: (trade: SavedTrade) => void;
 }) {
   const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const [imagePreview, setImagePreview] = useState<{
+    url: string;
+    label: string;
+  } | null>(null);
   return (
-    <article className="surface overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <div>
-          <h2 className="text-sm font-medium">Trade history</h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Live trades only · newest first
-          </p>
+    <>
+      <article className="surface overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-sm font-medium">Trade history</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Live trades only · newest first
+            </p>
+          </div>
+          <Badge variant="outline">{trades.length} entries</Badge>
         </div>
-        <Badge variant="outline">{trades.length} entries</Badge>
-      </div>
-      {loading ? (
-        <div className="grid min-h-52 place-items-center">
-          <Activity className="size-4 animate-spin text-primary" />
-        </div>
-      ) : trades.length ? (
-        <div className="divide-y divide-border">
-          {trades.map((trade) => {
-            const account = accountById.get(trade.accountId);
-            return (
-              <div key={trade.id} className="p-4 sm:p-5">
-                <div className="flex flex-col gap-4 sm:flex-row">
-                  {trade.imageUrl ? (
-                    <a
-                      href={trade.imageUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="relative h-32 w-full shrink-0 overflow-hidden rounded-xl border border-border bg-muted sm:h-24 sm:w-36"
-                    >
-                      <Image
-                        src={trade.imageUrl}
-                        alt={`GBPUSD chart from ${formatBacktestDate(trade.tradeDate)}`}
-                        fill
-                        sizes="(max-width: 640px) 100vw, 144px"
-                        className="object-cover"
-                      />
-                    </a>
-                  ) : (
-                    <div className="grid h-24 w-full shrink-0 place-items-center rounded-xl border border-dashed border-border bg-muted/35 sm:w-36">
-                      <ImagePlus className="size-5 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">GBPUSD</span>
-                          <Badge
-                            variant="outline"
-                            className={
-                              trade.direction === 'Buy'
-                                ? 'text-emerald-500'
-                                : 'text-destructive'
-                            }
-                          >
-                            {trade.direction}
-                          </Badge>
-                          <Badge variant="secondary">London · 15m</Badge>
-                          <Badge
-                            variant="outline"
-                            className={
-                              trade.outcome === 'Win'
-                                ? 'text-emerald-500'
-                                : trade.outcome === 'Loss'
-                                  ? 'text-destructive'
-                                  : ''
-                            }
-                          >
-                            {trade.outcome ?? 'Open'}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {formatBacktestDate(trade.tradeDate)} ·{' '}
-                          {trade.tradeTime} ·{' '}
-                          {account?.name ?? 'Deleted account'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant={trade.outcome ? 'ghost' : 'default'}
-                          size="sm"
-                          onClick={() => onComplete(trade)}
-                        >
-                          {trade.outcome ? <Pencil /> : <Check />}
-                          {trade.outcome ? 'Edit result' : 'Complete trade'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Delete trade"
-                          onClick={() => onDelete(trade)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-                      <TradeValue
-                        label="Entry"
-                        value={trade.entryPrice.toFixed(5)}
-                      />
-                      <TradeValue
-                        label="Stop"
-                        value={trade.stopLoss.toFixed(5)}
-                      />
-                      <TradeValue
-                        label="Exit"
-                        value={trade.exitPrice?.toFixed(5) ?? '—'}
-                      />
-                      <TradeValue
-                        label="RR"
-                        value={
-                          trade.outcome
-                            ? `${trade.resultR > 0 ? '+' : ''}${trade.resultR}R`
-                            : 'Pending'
+        {loading ? (
+          <div className="grid min-h-52 place-items-center">
+            <Activity className="size-4 animate-spin text-primary" />
+          </div>
+        ) : trades.length ? (
+          <div className="divide-y divide-border">
+            {trades.map((trade) => {
+              const account = accountById.get(trade.accountId);
+              return (
+                <div key={trade.id} className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row">
+                    {trade.imageUrl ? (
+                      <button
+                        type="button"
+                        aria-label="Preview entry screenshot"
+                        onClick={() =>
+                          setImagePreview({
+                            url: trade.imageUrl!,
+                            label: `GBPUSD entry chart from ${formatBacktestDate(trade.tradeDate)}`,
+                          })
                         }
-                        tone={trade.outcome ? trade.resultR : undefined}
-                      />
-                      <TradeValue
-                        label="P&L"
-                        value={
-                          trade.outcome
-                            ? money(trade.pnl, account?.currency ?? 'USD')
-                            : 'Pending'
-                        }
-                        tone={trade.outcome ? trade.pnl : undefined}
-                      />
-                    </div>
-                    {trade.notes ? (
-                      <p className="mt-3 whitespace-pre-wrap rounded-xl bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
-                        {trade.notes}
-                      </p>
-                    ) : null}
-                    {trade.postImageUrl ? (
-                      <a
-                        href={trade.postImageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+                        className="relative h-32 w-full shrink-0 overflow-hidden rounded-xl border border-border bg-muted sm:h-24 sm:w-36"
                       >
-                        <ImagePlus className="size-3.5" /> View post-trade
-                        screenshot
-                      </a>
-                    ) : null}
+                        <Image
+                          src={trade.imageUrl}
+                          alt={`GBPUSD chart from ${formatBacktestDate(trade.tradeDate)}`}
+                          fill
+                          sizes="(max-width: 640px) 100vw, 144px"
+                          className="object-cover"
+                        />
+                      </button>
+                    ) : (
+                      <div className="grid h-24 w-full shrink-0 place-items-center rounded-xl border border-dashed border-border bg-muted/35 sm:w-36">
+                        <ImagePlus className="size-5 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">GBPUSD</span>
+                            <Badge
+                              variant="outline"
+                              className={
+                                trade.direction === 'Buy'
+                                  ? 'text-emerald-500'
+                                  : 'text-destructive'
+                              }
+                            >
+                              {trade.direction}
+                            </Badge>
+                            <Badge variant="secondary">London · 15m</Badge>
+                            <Badge
+                              variant="outline"
+                              className={
+                                trade.outcome === 'Win'
+                                  ? 'text-emerald-500'
+                                  : trade.outcome === 'Loss'
+                                    ? 'text-destructive'
+                                    : ''
+                              }
+                            >
+                              {trade.outcome ?? 'Open'}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {formatBacktestDate(trade.tradeDate)} ·{' '}
+                            {trade.tradeTime} ·{' '}
+                            {account?.name ?? 'Deleted account'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            variant={trade.outcome ? 'ghost' : 'default'}
+                            size="sm"
+                            onClick={() => onComplete(trade)}
+                          >
+                            {trade.outcome ? <Pencil /> : <Check />}
+                            {trade.outcome ? 'Edit result' : 'Complete trade'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Delete trade"
+                            onClick={() => onDelete(trade)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                        <TradeValue
+                          label="Entry"
+                          value={trade.entryPrice.toFixed(5)}
+                        />
+                        <TradeValue
+                          label="Stop"
+                          value={trade.stopLoss.toFixed(5)}
+                        />
+                        <TradeValue
+                          label="Exit"
+                          value={trade.exitPrice?.toFixed(5) ?? '—'}
+                        />
+                        <TradeValue
+                          label="RR"
+                          value={
+                            trade.outcome
+                              ? `${trade.resultR > 0 ? '+' : ''}${trade.resultR}R`
+                              : 'Pending'
+                          }
+                          tone={trade.outcome ? trade.resultR : undefined}
+                        />
+                        <TradeValue
+                          label="P&L"
+                          value={
+                            trade.outcome
+                              ? money(trade.pnl, account?.currency ?? 'USD')
+                              : 'Pending'
+                          }
+                          tone={trade.outcome ? trade.pnl : undefined}
+                        />
+                      </div>
+                      {trade.notes ? (
+                        <p className="mt-3 whitespace-pre-wrap rounded-xl bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+                          {trade.notes}
+                        </p>
+                      ) : null}
+                      {trade.postImageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setImagePreview({
+                              url: trade.postImageUrl!,
+                              label: `GBPUSD post-trade chart from ${formatBacktestDate(trade.tradeDate)}`,
+                            })
+                          }
+                          className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+                        >
+                          <ImagePlus className="size-3.5" /> View post-trade
+                          screenshot
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="px-5 py-12 text-center">
-          <BookOpenCheck className="mx-auto size-6 text-primary" />
-          <p className="mt-3 text-sm font-medium">No live trades yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Add your first GBPUSD London-session trade.
-          </p>
-          {accounts.length ? (
-            <Button size="sm" className="mt-4" onClick={onAdd}>
-              <Plus /> Add trade
-            </Button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="px-5 py-12 text-center">
+            <BookOpenCheck className="mx-auto size-6 text-primary" />
+            <p className="mt-3 text-sm font-medium">No live trades yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Add your first GBPUSD London-session trade.
+            </p>
+            {accounts.length ? (
+              <Button size="sm" className="mt-4" onClick={onAdd}>
+                <Plus /> Add trade
+              </Button>
+            ) : null}
+          </div>
+        )}
+      </article>
+      <Dialog
+        open={Boolean(imagePreview)}
+        onOpenChange={(open) => !open && setImagePreview(null)}
+      >
+        <DialogContent className="max-h-[92vh] overflow-hidden p-3 sm:max-w-5xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Trade screenshot</DialogTitle>
+            <DialogDescription>{imagePreview?.label}</DialogDescription>
+          </DialogHeader>
+          {imagePreview ? (
+            <div className="relative min-h-52 w-full overflow-hidden rounded-xl bg-muted sm:min-h-[70vh]">
+              <Image
+                src={imagePreview.url}
+                alt={imagePreview.label}
+                fill
+                sizes="(max-width: 1024px) 95vw, 960px"
+                className="object-contain"
+              />
+            </div>
           ) : null}
-        </div>
-      )}
-    </article>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
