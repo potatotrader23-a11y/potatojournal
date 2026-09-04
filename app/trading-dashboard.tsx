@@ -114,6 +114,7 @@ type SavedTrade = {
   createdAt: string;
 };
 type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
+type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const londonToday = () =>
@@ -148,10 +149,10 @@ async function fetchTrades() {
 
 const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'journal', label: 'Journal', icon: BookOpenCheck },
   { id: 'accounts', label: 'Accounts', icon: WalletCards },
   { id: 'backtesting', label: 'Backtesting', icon: FlaskConical },
-  { id: 'journal', label: 'Journal', icon: BookOpenCheck },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'analytics', label: 'Performance', icon: BarChart3 },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -1549,12 +1550,14 @@ function BacktestCalendar({
   selectedDate,
   onMonthChange,
   onDateSelect,
+  mode = 'backtest',
 }: {
   backtests: SavedBacktest[];
   month: string;
   selectedDate: string;
   onMonthChange: (month: string) => void;
   onDateSelect: (date: string) => void;
+  mode?: 'backtest' | 'live';
 }) {
   const [year, monthNumber] = month.split('-').map(Number);
   const firstWeekday = new Date(year, monthNumber - 1, 1).getDay();
@@ -1616,7 +1619,8 @@ function BacktestCalendar({
             <h2 className="text-sm font-semibold">Win / loss calendar</h2>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Daily GBPUSD results. Select a day to log another backtest.
+            Daily GBPUSD results. Select a day to log another{' '}
+            {mode === 'live' ? 'trade' : 'backtest'}.
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -1860,6 +1864,11 @@ function Journal({
   activeAccountId: string;
   onChanged: () => Promise<void>;
 }) {
+  const [journalTab, setJournalTab] = useState<JournalTab>('trades');
+  const [journalDate, setJournalDate] = useState(londonToday);
+  const [calendarMonth, setCalendarMonth] = useState(() =>
+    londonToday().slice(0, 7),
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [completeTarget, setCompleteTarget] = useState<SavedTrade | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedTrade | null>(null);
@@ -1868,9 +1877,21 @@ function Journal({
   const wins = completed.filter((item) => item.outcome === 'Win').length;
   const netR = completed.reduce((total, item) => total + item.resultR, 0);
   const netPnl = completed.reduce((total, item) => total + item.pnl, 0);
+  const calendarTrades: SavedBacktest[] = completed.map((item) => ({
+    id: item.id,
+    instrument: 'GBPUSD',
+    resultR: item.resultR,
+    backtestDate: item.tradeDate,
+    imageUrl: item.imageUrl,
+    createdAt: item.createdAt,
+  }));
   const oneCurrency =
     accounts.length > 0 &&
     accounts.every((account) => account.currency === accounts[0].currency);
+  const openTrade = (date = londonToday()) => {
+    setJournalDate(date);
+    setDialogOpen(true);
+  };
   const deleteTrade = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1890,10 +1911,7 @@ function Journal({
         title="GBPUSD trading journal"
         description="Your London-session, 15-minute live trades. Backtests stay in their own workspace."
         action={
-          <Button
-            onClick={() => setDialogOpen(true)}
-            disabled={!accounts.length}
-          >
+          <Button onClick={() => openTrade()} disabled={!accounts.length}>
             <Plus /> Add trade
           </Button>
         }
@@ -1910,69 +1928,95 @@ function Journal({
           </p>
         </div>
       ) : null}
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label="Live trades"
-          value={loading ? '…' : `${trades.length}`}
-          detail="GBPUSD · London · 15m"
-          icon={BookOpenCheck}
-        />
-        <Metric
-          label="Win rate"
-          value={
-            loading
-              ? '…'
-              : completed.length
-                ? `${Math.round((wins / completed.length) * 100)}%`
-                : '—'
-          }
-          detail={`${wins} winning trade${wins === 1 ? '' : 's'}`}
-          positive={wins > 0}
-          icon={Target}
-        />
-        <Metric
-          label="Net RR"
-          value={
-            loading
-              ? '…'
-              : completed.length
-                ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
-                : '—'
-          }
-          detail="Cumulative live-trade result"
-          positive={netR > 0}
-          icon={TrendingUp}
-        />
-        <Metric
-          label="Net P&L"
-          value={
-            loading
-              ? '…'
-              : completed.length && oneCurrency
-                ? money(netPnl, accounts[0].currency)
-                : '—'
-          }
-          detail={
-            oneCurrency ? 'Across your live accounts' : 'Mixed currencies'
-          }
-          positive={netPnl > 0}
-          icon={netPnl < 0 ? TrendingDown : BarChart3}
-        />
-      </div>
-      <LiveTradeHistory
-        accounts={accounts}
-        trades={trades}
-        loading={loading}
-        onAdd={() => setDialogOpen(true)}
-        onComplete={setCompleteTarget}
-        onDelete={setDeleteTarget}
+      <JournalTabs
+        value={journalTab}
+        tradeCount={trades.length}
+        onChange={setJournalTab}
       />
+      {journalTab === 'calendar' ? (
+        <BacktestCalendar
+          backtests={calendarTrades}
+          month={calendarMonth}
+          selectedDate={journalDate}
+          onMonthChange={setCalendarMonth}
+          mode="live"
+          onDateSelect={(date) => {
+            setJournalTab('trades');
+            openTrade(date);
+          }}
+        />
+      ) : null}
+      {journalTab === 'analytics' ? (
+        <>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              label="Live trades"
+              value={loading ? '…' : `${trades.length}`}
+              detail="GBPUSD · London · 15m"
+              icon={BookOpenCheck}
+            />
+            <Metric
+              label="Win rate"
+              value={
+                loading
+                  ? '…'
+                  : completed.length
+                    ? `${Math.round((wins / completed.length) * 100)}%`
+                    : '—'
+              }
+              detail={`${wins} winning trade${wins === 1 ? '' : 's'}`}
+              positive={wins > 0}
+              icon={Target}
+            />
+            <Metric
+              label="Net RR"
+              value={
+                loading
+                  ? '…'
+                  : completed.length
+                    ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                    : '—'
+              }
+              detail="Cumulative live-trade result"
+              positive={netR > 0}
+              icon={TrendingUp}
+            />
+            <Metric
+              label="Net P&L"
+              value={
+                loading
+                  ? '…'
+                  : completed.length && oneCurrency
+                    ? money(netPnl, accounts[0].currency)
+                    : '—'
+              }
+              detail={
+                oneCurrency ? 'Across your live accounts' : 'Mixed currencies'
+              }
+              positive={netPnl > 0}
+              icon={netPnl < 0 ? TrendingDown : BarChart3}
+            />
+          </div>
+          {accounts.length ? <AccountEquityCurve accounts={accounts} /> : null}
+        </>
+      ) : null}
+      {journalTab === 'trades' ? (
+        <LiveTradeHistory
+          accounts={accounts}
+          trades={trades}
+          loading={loading}
+          onAdd={() => openTrade()}
+          onComplete={setCompleteTarget}
+          onDelete={setDeleteTarget}
+        />
+      ) : null}
       <TradeDialog
-        key={`${dialogOpen}-${activeAccountId}`}
+        key={`${dialogOpen}-${activeAccountId}-${journalDate}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         accounts={accounts}
         activeAccountId={activeAccountId}
+        initialDate={journalDate}
         onSaved={onChanged}
       />
       <CompleteTradeDialog
@@ -2005,6 +2049,57 @@ function Journal({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function JournalTabs({
+  value,
+  tradeCount,
+  onChange,
+}: {
+  value: JournalTab;
+  tradeCount: number;
+  onChange: (tab: JournalTab) => void;
+}) {
+  const tabs = [
+    { value: 'trades', label: 'Trades', icon: BookOpenCheck },
+    { value: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+  ] as const;
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Journal sections"
+      className="surface mb-5 overflow-x-auto p-1.5"
+    >
+      <div className="grid min-w-[420px] grid-cols-3 gap-1">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = value === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(tab.value)}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition ${active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+            >
+              <Icon className="size-4" />
+              {tab.label}
+              {tab.value === 'trades' ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-primary-foreground/15' : 'bg-muted'}`}
+                >
+                  {tradeCount}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -2427,17 +2522,19 @@ function TradeDialog({
   onOpenChange,
   accounts,
   activeAccountId,
+  initialDate,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: TradingAccount[];
   activeAccountId: string;
+  initialDate: string;
   onSaved: () => Promise<void>;
 }) {
   const [form, setForm] = useState({
     accountId: activeAccountId || accounts[0]?.id || '',
-    tradeDate: londonToday(),
+    tradeDate: initialDate,
     tradeTime: londonTime(),
     direction: 'Buy' as 'Buy' | 'Sell',
     entryPrice: '',
@@ -2706,9 +2803,9 @@ function Analytics({
   return (
     <>
       <PageHeading
-        eyebrow="Cross-account intelligence"
-        title="Analytics"
-        description="Live-account and backtest performance are calculated separately from saved data."
+        eyebrow="Backtest vs live"
+        title="Performance"
+        description="Compare your researched edge with your real GBPUSD trading results."
       />
       <div className="grid gap-4 xl:grid-cols-3">
         <article className="surface p-5">
