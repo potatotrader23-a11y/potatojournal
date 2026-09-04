@@ -2692,6 +2692,14 @@ function Analytics({
     (total, item) => total + item.pnl,
     0,
   );
+  const liveStreaks = longestOutcomeStreaks(
+    completedTrades.map((item) => item.outcome!),
+  );
+  const backtestStreaks = longestOutcomeStreaks(
+    backtests.map((item) =>
+      item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+    ),
+  );
   const oneCurrency =
     accounts.length > 0 &&
     accounts.every((account) => account.currency === accounts[0].currency);
@@ -2776,6 +2784,16 @@ function Analytics({
                 liveNetPnl > 0 ? 'win' : liveNetPnl < 0 ? 'loss' : undefined
               }
             />
+            <AnalyticsRow
+              label="Most wins in a row"
+              value={completedTrades.length ? String(liveStreaks.wins) : '—'}
+              tone={liveStreaks.wins ? 'win' : undefined}
+            />
+            <AnalyticsRow
+              label="Most losses in a row"
+              value={completedTrades.length ? String(liveStreaks.losses) : '—'}
+              tone={liveStreaks.losses ? 'loss' : undefined}
+            />
             <AnalyticsRow label="Market" value="GBPUSD · London · 15m" />
           </div>
         </article>
@@ -2814,12 +2832,43 @@ function Analytics({
               value={worst === null ? '—' : `${worst > 0 ? '+' : ''}${worst}R`}
               tone={worst !== null && worst < 0 ? 'loss' : undefined}
             />
+            <AnalyticsRow
+              label="Most wins in a row"
+              value={backtests.length ? String(backtestStreaks.wins) : '—'}
+              tone={backtestStreaks.wins ? 'win' : undefined}
+            />
+            <AnalyticsRow
+              label="Most losses in a row"
+              value={backtests.length ? String(backtestStreaks.losses) : '—'}
+              tone={backtestStreaks.losses ? 'loss' : undefined}
+            />
           </div>
         </article>
       </div>
     </>
   );
 }
+
+function longestOutcomeStreaks(outcomes: Array<'Win' | 'Loss' | 'Breakeven'>) {
+  let currentOutcome: 'Win' | 'Loss' | 'Breakeven' | null = null;
+  let currentLength = 0;
+  let wins = 0;
+  let losses = 0;
+
+  outcomes.forEach((outcome) => {
+    if (outcome === currentOutcome) currentLength += 1;
+    else {
+      currentOutcome = outcome;
+      currentLength = 1;
+    }
+
+    if (outcome === 'Win') wins = Math.max(wins, currentLength);
+    if (outcome === 'Loss') losses = Math.max(losses, currentLength);
+  });
+
+  return { wins, losses };
+}
+
 function OutcomeStat({
   label,
   value,
