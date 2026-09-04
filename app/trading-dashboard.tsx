@@ -12,7 +12,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   FlaskConical,
   LayoutDashboard,
   ImagePlus,
@@ -22,10 +21,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Search,
-  Settings,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
   Sun,
   Target,
@@ -105,91 +101,6 @@ async function fetchBacktests() {
   return (await response.json()) as SavedBacktest[];
 }
 
-const seedAccounts: TradingAccount[] = [
-  {
-    id: 'main',
-    name: 'Main Portfolio',
-    type: 'Personal',
-    platform: 'Interactive Brokers',
-    currency: 'USD',
-    balance: 112481,
-    startingBalance: 100000,
-    riskPercent: 0.75,
-    dailyLossPercent: 2,
-    maxLossPercent: 6,
-    pnl: 12481,
-    equity: [
-      100, 101, 100.5, 102, 103, 102.6, 104, 105.2, 104.8, 107, 108.4, 108,
-      110.2, 112.5,
-    ],
-  },
-  {
-    id: 'ftmo',
-    name: 'FTMO 100K',
-    type: 'Prop firm',
-    platform: 'MetaTrader 5',
-    currency: 'USD',
-    balance: 103820,
-    startingBalance: 100000,
-    riskPercent: 0.4,
-    dailyLossPercent: 5,
-    maxLossPercent: 10,
-    pnl: 3820,
-    equity: [100, 100.4, 101, 100.7, 101.8, 102.4, 102.1, 103, 102.7, 103.8],
-  },
-  {
-    id: 'fx',
-    name: 'FX Swing',
-    type: 'Forex',
-    platform: 'cTrader',
-    currency: 'USD',
-    balance: 26740,
-    startingBalance: 25000,
-    riskPercent: 1,
-    dailyLossPercent: 3,
-    maxLossPercent: 8,
-    pnl: 1740,
-    equity: [100, 99.5, 100.5, 101.2, 100.8, 102, 103.6, 102.9, 104.2, 106.9],
-  },
-];
-const trades = [
-  {
-    ticker: 'NVDA',
-    account: 'Main Portfolio',
-    setup: 'Opening drive',
-    result: '+$842.40',
-    move: '+3.21%',
-    good: true,
-    time: '09:34',
-  },
-  {
-    ticker: 'NQ',
-    account: 'FTMO 100K',
-    setup: 'Failed breakout',
-    result: '+$516.25',
-    move: '+1.84%',
-    good: true,
-    time: '10:12',
-  },
-  {
-    ticker: 'EURUSD',
-    account: 'FX Swing',
-    setup: 'London sweep',
-    result: '-$184.60',
-    move: '-0.72%',
-    good: false,
-    time: '11:08',
-  },
-  {
-    ticker: 'TSLA',
-    account: 'Main Portfolio',
-    setup: 'Trend pullback',
-    result: '+$294.10',
-    move: '+1.12%',
-    good: true,
-    time: '13:42',
-  },
-];
 const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'accounts', label: 'Accounts', icon: WalletCards },
@@ -206,9 +117,12 @@ const money = (value: number, currency = 'USD') =>
 
 export default function TradingDashboard({ userEmail }: { userEmail: string }) {
   const [view, setView] = useState<View>('overview');
-  const [accounts, setAccounts] = useState(seedAccounts);
-  const [activeId, setActiveId] = useState('main');
-  const [compareIds, setCompareIds] = useState<string[]>(['main', 'ftmo']);
+  const [accounts, setAccounts] = useState<TradingAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
+  const [backtestsLoading, setBacktestsLoading] = useState(true);
+  const [activeId, setActiveId] = useState('');
+  const [compareIds, setCompareIds] = useState<string[]>([]);
   const [light, setLight] = useState(false);
   const [dialog, setDialog] = useState(false);
   const [editing, setEditing] = useState<TradingAccount | null>(null);
@@ -275,13 +189,16 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
     void fetch('/api/accounts')
       .then((response) => (response.ok ? response.json() : []))
       .then((saved: TradingAccount[]) => {
-        if (saved.length) {
-          setAccounts(saved);
-          setActiveId(saved[0].id);
-          setCompareIds(saved.slice(0, 2).map((account) => account.id));
-        }
+        setAccounts(saved);
+        setActiveId(saved[0]?.id ?? '');
+        setCompareIds(saved.slice(0, 2).map((account) => account.id));
       })
-      .catch(() => undefined);
+      .catch(() => setAccounts([]))
+      .finally(() => setAccountsLoading(false));
+    void fetchBacktests()
+      .then(setBacktests)
+      .catch(() => setBacktests([]))
+      .finally(() => setBacktestsLoading(false));
   }, []);
   const openAccount = (account?: TradingAccount) => {
     setEditing(account ?? null);
@@ -355,40 +272,45 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               </div>
             </SheetContent>
           </Sheet>
-          <Select
-            value={activeId}
-            onValueChange={(value) => value && setActiveId(value)}
-          >
-            <SelectTrigger className="h-9 min-w-0 border-0 bg-transparent px-2 text-xs font-medium sm:min-w-[190px] sm:text-sm">
-              <BriefcaseBusiness className="hidden size-4 text-primary sm:block" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {accounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  {account.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Badge
-            variant="outline"
-            className="ml-1 hidden border-secondary/35 bg-secondary/10 text-[10px] md:flex"
-          >
-            {active.type}
-          </Badge>
-          <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="icon-lg" aria-label="Search">
-              <Search />
-            </Button>
+          {accountsLoading ? (
+            <span className="px-2 text-xs text-muted-foreground">
+              Loading accounts…
+            </span>
+          ) : active ? (
+            <>
+              <Select
+                value={activeId}
+                onValueChange={(value) => value && setActiveId(value)}
+              >
+                <SelectTrigger className="h-9 min-w-0 border-0 bg-transparent px-2 text-xs font-medium sm:min-w-[190px] sm:text-sm">
+                  <BriefcaseBusiness className="hidden size-4 text-primary sm:block" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Badge
+                variant="outline"
+                className="ml-1 hidden border-secondary/35 bg-secondary/10 text-[10px] md:flex"
+              >
+                {active.type}
+              </Badge>
+            </>
+          ) : (
             <Button
               variant="ghost"
-              size="icon-lg"
-              aria-label="Help"
-              className="hidden sm:inline-flex"
+              className="h-9 text-xs"
+              onClick={() => openAccount()}
             >
-              <CircleHelp />
+              <Plus /> Add account
             </Button>
+          )}
+          <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-lg"
@@ -399,11 +321,11 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             </Button>
             <Button
               className="h-10 rounded-xl px-3 text-xs font-semibold sm:px-4"
-              onClick={() => setView('journal')}
+              onClick={() => setView('backtesting')}
             >
               <Plus />
-              <span className="hidden sm:inline">Log trade</span>
-              <span className="sm:hidden">Trade</span>
+              <span className="hidden sm:inline">Log backtest</span>
+              <span className="sm:hidden">Log</span>
             </Button>
             <button
               type="button"
@@ -430,6 +352,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               compareIds={compareIds}
               onCompare={setCompareIds}
               onAdd={() => openAccount()}
+              backtests={backtests}
+              loading={accountsLoading || backtestsLoading}
+              onOpenBacktests={() => setView('backtesting')}
             />
           )}
           {view === 'accounts' && (
@@ -439,11 +364,26 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               onEdit={openAccount}
               onActive={setActiveId}
               activeId={activeId}
+              loading={accountsLoading}
             />
           )}
-          {view === 'backtesting' && <Backtesting />}{' '}
-          {view === 'journal' && <Journal />}{' '}
-          {view === 'analytics' && <Analytics accounts={accounts} />}
+          {view === 'backtesting' && (
+            <Backtesting
+              backtests={backtests}
+              setBacktests={setBacktests}
+              loading={backtestsLoading}
+            />
+          )}{' '}
+          {view === 'journal' && (
+            <Journal
+              backtests={backtests}
+              loading={backtestsLoading}
+              onLog={() => setView('backtesting')}
+            />
+          )}{' '}
+          {view === 'analytics' && (
+            <Analytics accounts={accounts} backtests={backtests} />
+          )}
         </div>
       </section>
       <AccountDialog
@@ -504,12 +444,9 @@ function DesktopSidebar({
           </span>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Combined open risk is below plan. You have room for one A-grade setup.
+          Every account keeps its own balance, risk per trade, and loss limits.
         </p>
       </div>
-      <button className="mt-3 flex h-10 items-center gap-3 px-3 text-[13px] text-muted-foreground">
-        <Settings className="size-4" /> Settings
-      </button>
     </aside>
   );
 }
@@ -521,20 +458,43 @@ function Overview({
   compareIds,
   onCompare,
   onAdd,
+  backtests,
+  loading,
+  onOpenBacktests,
 }: {
   accounts: TradingAccount[];
-  active: TradingAccount;
+  active: TradingAccount | undefined;
   compared: TradingAccount[];
   compareIds: string[];
   onCompare: (ids: string[]) => void;
   onAdd: () => void;
+  backtests: SavedBacktest[];
+  loading: boolean;
+  onOpenBacktests: () => void;
 }) {
-  const totalBalance = compared.reduce((s, a) => s + a.balance, 0),
-    totalPnl = compared.reduce((s, a) => s + a.pnl, 0),
-    average = compared.length
-      ? compared.reduce((s, a) => s + a.riskPercent, 0) / compared.length
-      : 0,
-    risk = (active.balance * active.riskPercent) / 100;
+  const totalBalance = compared.reduce(
+    (sum, account) => sum + account.balance,
+    0,
+  );
+  const totalPnl = compared.reduce((sum, account) => sum + account.pnl, 0);
+  const oneCurrency =
+    compared.length > 0 &&
+    compared.every((account) => account.currency === compared[0].currency);
+  const winCount = backtests.filter((item) => item.resultR > 0).length;
+  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
+  const winRate = backtests.length
+    ? `${Math.round((winCount / backtests.length) * 100)}%`
+    : '—';
+  const accountValue = !compared.length
+    ? '—'
+    : oneCurrency
+      ? money(totalBalance, compared[0].currency)
+      : 'Mixed';
+  const pnlValue = !compared.length
+    ? '—'
+    : oneCurrency
+      ? money(totalPnl, compared[0].currency)
+      : 'Mixed';
   return (
     <>
       <PageHeading
@@ -547,64 +507,103 @@ function Overview({
           </Button>
         }
       />
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Compare
-        </span>
-        {accounts.map((a) => {
-          const selected = compareIds.includes(a.id);
-          return (
-            <button
-              key={a.id}
-              onClick={() =>
-                onCompare(
-                  selected
-                    ? compareIds.filter((id) => id !== a.id)
-                    : [...compareIds, a.id],
-                )
-              }
-              className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] ${selected ? 'border-primary/35 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-            >
-              {selected && <Check className="size-3" />}
-              {a.name}
-            </button>
-          );
-        })}
-      </div>
+      {accounts.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Compare
+          </span>
+          {accounts.map((account) => {
+            const selected = compareIds.includes(account.id);
+            return (
+              <button
+                key={account.id}
+                type="button"
+                onClick={() =>
+                  onCompare(
+                    selected
+                      ? compareIds.filter((id) => id !== account.id)
+                      : [...compareIds, account.id],
+                  )
+                }
+                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] ${selected ? 'border-primary/35 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+              >
+                {selected && <Check className="size-3" />}
+                {account.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : !loading ? (
+        <div className="surface mb-3 flex flex-wrap items-center justify-between gap-3 border-dashed p-4">
+          <div>
+            <p className="text-sm font-medium">No trading account yet</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Add one to calculate balance-based risk and loss limits.
+            </p>
+          </div>
+          <Button type="button" size="sm" onClick={onAdd}>
+            <Plus /> Add account
+          </Button>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Compared equity"
-          value={money(totalBalance)}
-          detail={`${compared.length} selected accounts`}
+          label="Account balance"
+          value={loading ? '…' : accountValue}
+          detail={
+            compared.length
+              ? `${compared.length} selected account${compared.length === 1 ? '' : 's'}`
+              : 'No account data'
+          }
           icon={WalletCards}
         />
         <Metric
-          label="Net P&L"
-          value={money(totalPnl)}
-          detail="Across selected accounts"
-          positive
-          icon={TrendingUp}
+          label="Account P&L"
+          value={loading ? '…' : pnlValue}
+          detail="Current balance minus starting balance"
+          positive={totalPnl > 0}
+          icon={totalPnl < 0 ? TrendingDown : TrendingUp}
         />
         <Metric
-          label={`${active.name} risk`}
-          value={`${active.riskPercent.toFixed(2)}%`}
-          detail={`${money(risk)} automatic risk`}
-          icon={ShieldCheck}
+          label="Backtest win rate"
+          value={loading ? '…' : winRate}
+          detail={`${backtests.length} saved GBPUSD result${backtests.length === 1 ? '' : 's'}`}
+          positive={winCount > 0}
+          icon={Target}
         />
         <Metric
-          label="Average risk"
-          value={`${average.toFixed(2)}%`}
-          detail="Per trade · selected"
-          icon={SlidersHorizontal}
+          label="Backtest net result"
+          value={
+            loading
+              ? '…'
+              : backtests.length
+                ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                : '—'
+          }
+          detail="Cumulative result from saved tests"
+          positive={netR > 0}
+          icon={netR < 0 ? TrendingDown : BarChart3}
         />
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.75fr)]">
-        <EquityComparison accounts={compared} />
-        <RiskCard account={active} />
+        <BacktestEquityCurve backtests={backtests} />
+        {active ? (
+          <RiskCard account={active} />
+        ) : (
+          <EmptyAccountCard onAdd={onAdd} />
+        )}
       </div>
       <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(330px,.8fr)]">
-        <TradeTable />
-        <AccountSnapshot accounts={accounts} active={active} />
+        <RecentBacktests
+          backtests={backtests}
+          loading={loading}
+          onOpen={onOpenBacktests}
+        />
+        {active ? (
+          <AccountSnapshot accounts={accounts} active={active} />
+        ) : (
+          <EmptyAccountCard onAdd={onAdd} compact />
+        )}
       </div>
     </>
   );
@@ -649,82 +648,6 @@ function seriesPoints(values: number[]) {
         `${(i / Math.max(values.length - 1, 1)) * 760},${210 - ((v - min) / (max - min)) * 185}`,
     )
     .join(' ');
-}
-function EquityComparison({ accounts }: { accounts: TradingAccount[] }) {
-  const colors = ['#3A86FF', '#BDB2FF', '#FF9DB5'];
-  return (
-    <article className="surface overflow-hidden p-5 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-medium">Equity comparison</h2>
-            <Badge
-              variant="outline"
-              className="border-primary/20 bg-primary/5 text-[10px] text-primary"
-            >
-              Normalized
-            </Badge>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            All curves indexed to 100 for a fair comparison.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {accounts.map((a, i) => (
-            <span
-              key={a.id}
-              className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
-            >
-              <span
-                className="size-2 rounded-full"
-                style={{ backgroundColor: colors[i % colors.length] }}
-              />
-              {a.name}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="mt-7 h-[235px]">
-        <svg
-          viewBox="0 0 760 230"
-          className="h-full w-full"
-          preserveAspectRatio="none"
-          aria-label="Normalized equity comparison"
-        >
-          {[35, 85, 135, 185].map((y) => (
-            <line
-              key={y}
-              x1="0"
-              y1={y}
-              x2="760"
-              y2={y}
-              stroke="currentColor"
-              className="text-border"
-              strokeDasharray="4 6"
-            />
-          ))}
-          {accounts.map((a, i) => (
-            <polyline
-              key={a.id}
-              points={seriesPoints(a.equity)}
-              fill="none"
-              stroke={colors[i % colors.length]}
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ))}
-        </svg>
-      </div>
-      <div className="flex justify-between text-[9px] text-muted-foreground">
-        <span>Aug 4</span>
-        <span>Aug 11</span>
-        <span>Aug 18</span>
-        <span>Aug 25</span>
-        <span>Sep 2</span>
-      </div>
-    </article>
-  );
 }
 function RiskCard({ account }: { account: TradingAccount }) {
   const risk = (account.balance * account.riskPercent) / 100,
@@ -804,65 +727,110 @@ function RiskRow({
     </div>
   );
 }
-function TradeTable() {
+function RecentBacktests({
+  backtests,
+  loading,
+  onOpen,
+}: {
+  backtests: SavedBacktest[];
+  loading: boolean;
+  onOpen: () => void;
+}) {
+  const recent = backtests.slice(0, 6);
   return (
     <article className="surface overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
-          <h2 className="text-sm font-medium">Recent trades</h2>
+          <h2 className="text-sm font-medium">Recent backtests</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Live journal · all accounts
+            Your latest saved GBPUSD results
           </p>
         </div>
-        <Button variant="ghost" size="sm">
-          Open journal <ArrowRight />
+        <Button type="button" variant="ghost" size="sm" onClick={onOpen}>
+          Open backtesting <ArrowRight />
         </Button>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[700px] text-left">
-          <thead className="text-[10px] uppercase tracking-[.13em] text-muted-foreground">
-            <tr>
-              <th className="px-5 py-3 font-medium">Asset</th>
-              <th className="py-3 font-medium">Account</th>
-              <th className="py-3 font-medium">Setup</th>
-              <th className="py-3 font-medium">Move</th>
-              <th className="px-5 py-3 text-right font-medium">Net P&L</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trades.map((t) => (
-              <tr
-                key={`${t.ticker}-${t.time}`}
-                className="border-t border-border text-xs"
-              >
-                <td className="px-5 py-3.5 font-semibold">
-                  {t.ticker}
-                  <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-                    {t.time}
-                  </span>
-                </td>
-                <td className="py-3.5 text-muted-foreground">{t.account}</td>
-                <td className="py-3.5">{t.setup}</td>
-                <td
-                  className={
-                    t.good ? 'py-3.5 text-emerald-500' : 'py-3.5 text-red-500'
-                  }
-                >
-                  {t.move}
-                </td>
-                <td
-                  className={
-                    t.good
-                      ? 'px-5 py-3.5 text-right font-semibold'
-                      : 'px-5 py-3.5 text-right font-semibold text-red-500'
-                  }
-                >
-                  {t.result}
-                </td>
+      {loading ? (
+        <div className="grid min-h-44 place-items-center">
+          <Activity className="size-4 animate-spin text-primary" />
+        </div>
+      ) : recent.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left">
+            <thead className="text-[10px] uppercase tracking-[.13em] text-muted-foreground">
+              <tr>
+                <th className="px-5 py-3 font-medium">Date</th>
+                <th className="py-3 font-medium">Market</th>
+                <th className="py-3 font-medium">Outcome</th>
+                <th className="px-5 py-3 text-right font-medium">Result</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {recent.map((item) => (
+                <tr key={item.id} className="border-t border-border text-xs">
+                  <td className="px-5 py-3.5 text-muted-foreground">
+                    {formatBacktestDate(item.backtestDate)}
+                  </td>
+                  <td className="py-3.5 font-semibold">GBPUSD</td>
+                  <td className="py-3.5">
+                    <span
+                      className={
+                        item.resultR > 0
+                          ? 'text-emerald-500'
+                          : item.resultR < 0
+                            ? 'text-destructive'
+                            : 'text-muted-foreground'
+                      }
+                    >
+                      {item.resultR > 0
+                        ? 'Win'
+                        : item.resultR < 0
+                          ? 'Loss'
+                          : 'Breakeven'}
+                    </span>
+                  </td>
+                  <td
+                    className={`px-5 py-3.5 text-right font-semibold ${item.resultR > 0 ? 'text-emerald-500' : item.resultR < 0 ? 'text-destructive' : ''}`}
+                  >
+                    {item.resultR > 0 ? '+' : ''}
+                    {item.resultR}R
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="px-5 py-10 text-center">
+          <BookOpenCheck className="mx-auto size-5 text-primary" />
+          <p className="mt-3 text-sm font-medium">No results yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Log your first backtest to populate the overview.
+          </p>
+        </div>
+      )}
+    </article>
+  );
+}
+function EmptyAccountCard({
+  onAdd,
+  compact = false,
+}: {
+  onAdd: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <article className="surface grid place-items-center p-5 text-center sm:p-6">
+      <div className={compact ? 'py-5' : 'py-10'}>
+        <WalletCards className="mx-auto size-6 text-primary" />
+        <h2 className="mt-3 text-sm font-medium">Add a trading account</h2>
+        <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+          Your balances and risk calculations will appear here after you add an
+          account.
+        </p>
+        <Button type="button" size="sm" className="mt-4" onClick={onAdd}>
+          <Plus /> Add account
+        </Button>
       </div>
     </article>
   );
@@ -893,7 +861,7 @@ function AccountSnapshot({
             >
               <div className="flex justify-between text-xs">
                 <span className="font-medium">{a.name}</span>
-                <span>{money(a.balance)}</span>
+                <span>{money(a.balance, a.currency)}</span>
               </div>
               <div className="mt-2 h-1 rounded-full bg-muted">
                 <div
@@ -919,12 +887,14 @@ function Accounts({
   onEdit,
   onActive,
   activeId,
+  loading,
 }: {
   accounts: TradingAccount[];
   onAdd: () => void;
   onEdit: (a: TradingAccount) => void;
   onActive: (id: string) => void;
   activeId: string;
+  loading: boolean;
 }) {
   return (
     <>
@@ -938,72 +908,90 @@ function Accounts({
           </Button>
         }
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {accounts.map((a) => {
-          const risk = (a.balance * a.riskPercent) / 100,
-            growth = (a.pnl / a.startingBalance) * 100;
-          return (
-            <article
-              key={a.id}
-              className={`surface p-5 ${activeId === a.id ? 'ring-2 ring-primary/35' : ''}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="grid size-10 place-items-center rounded-xl bg-secondary/15 text-secondary-foreground dark:text-secondary">
-                    <WalletCards className="size-5" />
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-semibold">{a.name}</h2>
-                    <p className="text-[10px] text-muted-foreground">
-                      {a.type} · {a.platform}
-                    </p>
+      {loading ? (
+        <div className="surface grid min-h-48 place-items-center">
+          <Activity className="size-5 animate-spin text-primary" />
+        </div>
+      ) : accounts.length ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {accounts.map((a) => {
+            const risk = (a.balance * a.riskPercent) / 100,
+              growth = (a.pnl / a.startingBalance) * 100;
+            return (
+              <article
+                key={a.id}
+                className={`surface p-5 ${activeId === a.id ? 'ring-2 ring-primary/35' : ''}`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="grid size-10 place-items-center rounded-xl bg-secondary/15 text-secondary-foreground dark:text-secondary">
+                      <WalletCards className="size-5" />
+                    </span>
+                    <div>
+                      <h2 className="text-sm font-semibold">{a.name}</h2>
+                      <p className="text-[10px] text-muted-foreground">
+                        {a.type} · {a.platform}
+                      </p>
+                    </div>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => onEdit(a)}
+                    aria-label={`Edit ${a.name}`}
+                  >
+                    <Pencil />
+                  </Button>
+                </div>
+                <div className="mt-6">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Current balance
+                  </p>
+                  <p className="mt-1 text-3xl font-semibold tracking-[-.05em]">
+                    {money(a.balance, a.currency)}
+                  </p>
+                  <p
+                    className={`mt-1 text-[11px] ${growth >= 0 ? 'text-emerald-500' : 'text-red-500'}`}
+                  >
+                    {growth >= 0 ? '+' : ''}
+                    {growth.toFixed(2)}% since start
+                  </p>
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  <TinyStat label="Risk/trade" value={`${a.riskPercent}%`} />
+                  <TinyStat label="Risk amount" value={money(risk)} />
+                  <TinyStat label="Max loss" value={`${a.maxLossPercent}%`} />
                 </div>
                 <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onEdit(a)}
-                  aria-label={`Edit ${a.name}`}
+                  variant={activeId === a.id ? 'secondary' : 'outline'}
+                  className="mt-5 h-9 w-full"
+                  onClick={() => onActive(a.id)}
                 >
-                  <Pencil />
+                  {activeId === a.id ? (
+                    <>
+                      <Check /> Active account
+                    </>
+                  ) : (
+                    'Make active'
+                  )}
                 </Button>
-              </div>
-              <div className="mt-6">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Current balance
-                </p>
-                <p className="mt-1 text-3xl font-semibold tracking-[-.05em]">
-                  {money(a.balance, a.currency)}
-                </p>
-                <p
-                  className={`mt-1 text-[11px] ${growth >= 0 ? 'text-emerald-500' : 'text-red-500'}`}
-                >
-                  {growth >= 0 ? '+' : ''}
-                  {growth.toFixed(2)}% since start
-                </p>
-              </div>
-              <div className="mt-5 grid grid-cols-3 gap-2">
-                <TinyStat label="Risk/trade" value={`${a.riskPercent}%`} />
-                <TinyStat label="Risk amount" value={money(risk)} />
-                <TinyStat label="Max loss" value={`${a.maxLossPercent}%`} />
-              </div>
-              <Button
-                variant={activeId === a.id ? 'secondary' : 'outline'}
-                className="mt-5 h-9 w-full"
-                onClick={() => onActive(a.id)}
-              >
-                {activeId === a.id ? (
-                  <>
-                    <Check /> Active account
-                  </>
-                ) : (
-                  'Make active'
-                )}
-              </Button>
-            </article>
-          );
-        })}
-      </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="surface border-dashed px-5 py-14 text-center">
+          <WalletCards className="mx-auto size-7 text-primary" />
+          <h2 className="mt-3 text-sm font-semibold">No trading accounts</h2>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+            Add your first personal, forex, or prop-firm account to start
+            tracking its balance and independent risk settings.
+          </p>
+          <Button type="button" className="mt-5" onClick={onAdd}>
+            <Plus /> Add your first account
+          </Button>
+        </div>
+      )}
     </>
   );
 }
@@ -1016,15 +1004,21 @@ function TinyStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Backtesting() {
+function Backtesting({
+  backtests,
+  setBacktests,
+  loading,
+}: {
+  backtests: SavedBacktest[];
+  setBacktests: React.Dispatch<React.SetStateAction<SavedBacktest[]>>;
+  loading: boolean;
+}) {
   const [backtestTab, setBacktestTab] = useState<BacktestTab>('log');
   const [resultRInput, setResultRInput] = useState('1');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     manilaToday().slice(0, 7),
   );
-  const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
-  const [loading, setLoading] = useState(true);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1033,13 +1027,6 @@ function Backtesting() {
   const [saveState, setSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
-
-  useEffect(() => {
-    void fetchBacktests()
-      .then(setBacktests)
-      .catch(() => setSaveState('error'))
-      .finally(() => setLoading(false));
-  }, []);
 
   useEffect(
     () => () => {
@@ -1805,92 +1792,172 @@ function formatBacktestDate(value: string) {
     timeZone: 'UTC',
   });
 }
-function Journal() {
+function Journal({
+  backtests,
+  loading,
+  onLog,
+}: {
+  backtests: SavedBacktest[];
+  loading: boolean;
+  onLog: () => void;
+}) {
+  const wins = backtests.filter((item) => item.resultR > 0).length;
+  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
+  const averageR = backtests.length ? netR / backtests.length : 0;
   return (
     <>
       <PageHeading
         eyebrow="Execution record"
         title="Trading journal"
-        description="Review live trades across every account without merging their risk calculations."
+        description="Review your saved GBPUSD backtest results without demo data or invented statistics."
         action={
-          <Button>
-            <Plus /> Log trade
+          <Button onClick={onLog}>
+            <Plus /> Log backtest
           </Button>
         }
       />
-      <TradeTable />
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Journal win rate"
-          value="68.2%"
-          detail="44 closed trades"
-          positive
+          label="Saved results"
+          value={loading ? '…' : `${backtests.length}`}
+          detail="GBPUSD backtests"
+          icon={BookOpenCheck}
+        />
+        <Metric
+          label="Win rate"
+          value={
+            loading
+              ? '…'
+              : backtests.length
+                ? `${Math.round((wins / backtests.length) * 100)}%`
+                : '—'
+          }
+          detail={`${wins} winning result${wins === 1 ? '' : 's'}`}
+          positive={wins > 0}
           icon={Target}
         />
         <Metric
-          label="Average R"
-          value="1.72R"
-          detail="Across all live accounts"
+          label="Average result"
+          value={
+            loading ? '…' : backtests.length ? `${averageR.toFixed(2)}R` : '—'
+          }
+          detail="Across saved backtests"
           icon={TrendingUp}
         />
         <Metric
-          label="Rule breaks"
-          value="2"
-          detail="Down 60% this month"
-          icon={TrendingDown}
+          label="Net result"
+          value={
+            loading
+              ? '…'
+              : backtests.length
+                ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                : '—'
+          }
+          detail="Cumulative RR"
+          positive={netR > 0}
+          icon={netR < 0 ? TrendingDown : BarChart3}
         />
       </div>
+      <RecentBacktests backtests={backtests} loading={loading} onOpen={onLog} />
     </>
   );
 }
-function Analytics({ accounts }: { accounts: TradingAccount[] }) {
+function Analytics({
+  accounts,
+  backtests,
+}: {
+  accounts: TradingAccount[];
+  backtests: SavedBacktest[];
+}) {
+  const wins = backtests.filter((item) => item.resultR > 0).length;
+  const losses = backtests.filter((item) => item.resultR < 0).length;
+  const breakeven = backtests.length - wins - losses;
+  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
+  const best = backtests.length
+    ? Math.max(...backtests.map((item) => item.resultR))
+    : null;
+  const worst = backtests.length
+    ? Math.min(...backtests.map((item) => item.resultR))
+    : null;
   return (
     <>
       <PageHeading
         eyebrow="Cross-account intelligence"
         title="Analytics"
-        description="Find which accounts, sessions, and setups are actually producing your edge."
+        description="Performance calculated only from your saved accounts and GBPUSD backtests."
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <article className="surface p-5">
           <h2 className="text-sm font-semibold">Account performance</h2>
-          <div className="mt-6 space-y-5">
-            {accounts.map((a) => {
-              const growth = (a.pnl / a.startingBalance) * 100;
-              return (
-                <div key={a.id}>
-                  <div className="mb-2 flex justify-between text-xs">
-                    <span>{a.name}</span>
-                    <span className="font-semibold text-emerald-500">
-                      +{growth.toFixed(2)}%
-                    </span>
+          {accounts.length ? (
+            <div className="mt-6 space-y-5">
+              {accounts.map((account) => {
+                const growth = account.startingBalance
+                  ? (account.pnl / account.startingBalance) * 100
+                  : 0;
+                return (
+                  <div key={account.id}>
+                    <div className="mb-2 flex justify-between text-xs">
+                      <span>{account.name}</span>
+                      <span
+                        className={`font-semibold ${growth > 0 ? 'text-emerald-500' : growth < 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+                      >
+                        {growth > 0 ? '+' : ''}
+                        {growth.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className={`h-full rounded-full ${growth < 0 ? 'bg-destructive' : 'bg-primary'}`}
+                        style={{
+                          width: `${Math.min(Math.abs(growth) * 7, 100)}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{ width: `${Math.min(growth * 7, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-6 rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+              Add a trading account to see balance growth here.
+            </p>
+          )}
         </article>
         <article className="surface p-5">
-          <h2 className="text-sm font-semibold">What is working</h2>
-          <div className="mt-5 space-y-3">
-            <Insight
-              title="Opening drive is your strongest playbook"
-              detail="72% win rate · 2.14R average"
+          <h2 className="text-sm font-semibold">Backtest outcomes</h2>
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            <OutcomeStat label="Wins" value={wins} tone="win" />
+            <OutcomeStat label="Losses" value={losses} tone="loss" />
+            <OutcomeStat label="Breakeven" value={breakeven} />
+          </div>
+          <div className="mt-5 space-y-3 border-t border-border pt-5">
+            <AnalyticsRow
+              label="Win rate"
+              value={
+                backtests.length
+                  ? `${Math.round((wins / backtests.length) * 100)}%`
+                  : '—'
+              }
             />
-            <Insight
-              title="Main Portfolio performs best before 10:30"
-              detail="61% of its monthly profit comes from this window"
+            <AnalyticsRow
+              label="Net RR"
+              value={
+                backtests.length
+                  ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                  : '—'
+              }
+              tone={netR > 0 ? 'win' : netR < 0 ? 'loss' : undefined}
             />
-            <Insight
-              title="FX Swing risk is running hotter"
-              detail="1.0% risk creates 2.5× more variance than FTMO"
-              warning
+            <AnalyticsRow
+              label="Best result"
+              value={best === null ? '—' : `${best > 0 ? '+' : ''}${best}R`}
+              tone={best !== null && best > 0 ? 'win' : undefined}
+            />
+            <AnalyticsRow
+              label="Worst result"
+              value={worst === null ? '—' : `${worst > 0 ? '+' : ''}${worst}R`}
+              tone={worst !== null && worst < 0 ? 'loss' : undefined}
             />
           </div>
         </article>
@@ -1898,30 +1965,43 @@ function Analytics({ accounts }: { accounts: TradingAccount[] }) {
     </>
   );
 }
-function Insight({
-  title,
-  detail,
-  warning,
+function OutcomeStat({
+  label,
+  value,
+  tone,
 }: {
-  title: string;
-  detail: string;
-  warning?: boolean;
+  label: string;
+  value: number;
+  tone?: 'win' | 'loss';
 }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-border p-3.5">
-      <span
-        className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg ${warning ? 'bg-amber-500/10 text-amber-500' : 'bg-primary/10 text-primary'}`}
+    <div className="rounded-xl bg-muted/50 p-3 text-center">
+      <p className="text-[9px] text-muted-foreground">{label}</p>
+      <p
+        className={`mt-1 text-xl font-semibold ${tone === 'win' ? 'text-emerald-500' : tone === 'loss' ? 'text-destructive' : ''}`}
       >
-        {warning ? (
-          <TrendingDown className="size-3.5" />
-        ) : (
-          <Sparkles className="size-3.5" />
-        )}
+        {value}
+      </p>
+    </div>
+  );
+}
+function AnalyticsRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: 'win' | 'loss';
+}) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={`font-semibold ${tone === 'win' ? 'text-emerald-500' : tone === 'loss' ? 'text-destructive' : ''}`}
+      >
+        {value}
       </span>
-      <div>
-        <p className="text-xs font-medium">{title}</p>
-        <p className="mt-1 text-[10px] text-muted-foreground">{detail}</p>
-      </div>
     </div>
   );
 }
