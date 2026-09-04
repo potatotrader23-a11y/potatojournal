@@ -119,6 +119,12 @@ type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
 type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const nextCalendarDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+};
 const londonToday = () =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/London',
@@ -134,7 +140,7 @@ const londonTime = () =>
     hourCycle: 'h23',
   }).format(new Date());
 async function fetchBacktests() {
-  const response = await fetch('/api/backtests');
+  const response = await fetch('/api/backtests', { cache: 'no-store' });
   if (!response.ok) throw new Error('Unable to load backtests');
   return (await response.json()) as SavedBacktest[];
 }
@@ -1127,18 +1133,21 @@ function Backtesting({
         },
       );
       if (!response.ok) throw new Error('Unable to save backtest');
+      const nextDate = editingId
+        ? manilaToday()
+        : nextCalendarDate(backtestDate);
       setBacktests(await fetchBacktests());
-      setCalendarMonth(backtestDate.slice(0, 7));
-      resetEditor();
+      setCalendarMonth(nextDate.slice(0, 7));
+      resetEditor(nextDate);
       setSaveState('saved');
     } catch {
       setSaveState('error');
     }
   };
 
-  const resetEditor = () => {
+  const resetEditor = (nextDate = manilaToday()) => {
     setResultRInput('1');
-    setBacktestDate(manilaToday());
+    setBacktestDate(nextDate);
     setImageFile(null);
     setPreviewUrl(null);
     setEditingId(null);
