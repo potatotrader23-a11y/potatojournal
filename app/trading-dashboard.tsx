@@ -1550,6 +1550,7 @@ function BacktestCalendar({
   selectedDate,
   onMonthChange,
   onDateSelect,
+  onResultSelect,
   mode = 'backtest',
 }: {
   backtests: SavedBacktest[];
@@ -1557,6 +1558,7 @@ function BacktestCalendar({
   selectedDate: string;
   onMonthChange: (month: string) => void;
   onDateSelect: (date: string) => void;
+  onResultSelect?: (date: string) => void;
   mode?: 'backtest' | 'live';
 }) {
   const [year, monthNumber] = month.split('-').map(Number);
@@ -1703,7 +1705,11 @@ function BacktestCalendar({
               key={date}
               type="button"
               aria-label={`${formatBacktestDate(date)}${result ? `, ${result.wins} wins, ${result.losses} losses, ${result.netR.toFixed(1)} R` : ', no trades'}`}
-              onClick={() => onDateSelect(date)}
+              onClick={() =>
+                result && onResultSelect
+                  ? onResultSelect(date)
+                  : onDateSelect(date)
+              }
               className={`min-h-16 border-b border-r border-border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${tone} ${selectedDate === date ? 'relative z-10 ring-2 ring-inset ring-primary' : ''}`}
             >
               <span className="text-xs font-semibold">{day}</span>
@@ -1870,6 +1876,7 @@ function Journal({
     londonToday().slice(0, 7),
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [completeTarget, setCompleteTarget] = useState<SavedTrade | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedTrade | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1940,6 +1947,10 @@ function Journal({
           selectedDate={journalDate}
           onMonthChange={setCalendarMonth}
           mode="live"
+          onResultSelect={(date) => {
+            setJournalDate(date);
+            setSelectedDay(date);
+          }}
           onDateSelect={(date) => {
             setJournalTab('trades');
             openTrade(date);
@@ -2028,6 +2039,12 @@ function Journal({
         onOpenChange={(open) => !open && setCompleteTarget(null)}
         onSaved={onChanged}
       />
+      <JournalDayDialog
+        date={selectedDay}
+        trades={trades.filter((trade) => trade.tradeDate === selectedDay)}
+        accounts={accounts}
+        onOpenChange={(open) => !open && setSelectedDay(null)}
+      />
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -2100,6 +2117,102 @@ function JournalTabs({
         })}
       </div>
     </div>
+  );
+}
+
+function JournalDayDialog({
+  date,
+  trades,
+  accounts,
+  onOpenChange,
+}: {
+  date: string | null;
+  trades: SavedTrade[];
+  accounts: TradingAccount[];
+  onOpenChange: (open: boolean) => void;
+}) {
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+
+  return (
+    <Dialog open={Boolean(date)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>
+            {date ? formatBacktestDate(date) : 'Trade screenshots'}
+          </DialogTitle>
+          <DialogDescription>
+            Entry and post-trade charts saved for this trading day.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5">
+          {trades.map((trade) => {
+            const screenshots = [
+              { label: 'Entry', url: trade.imageUrl },
+              { label: 'Post-trade', url: trade.postImageUrl },
+            ].filter((item): item is { label: string; url: string } =>
+              Boolean(item.url),
+            );
+            return (
+              <article
+                key={trade.id}
+                className="overflow-hidden rounded-xl border border-border bg-card"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold">GBPUSD</span>
+                    <Badge variant="outline">{trade.tradeTime}</Badge>
+                    <Badge
+                      variant="outline"
+                      className={
+                        trade.outcome === 'Win'
+                          ? 'text-emerald-500'
+                          : trade.outcome === 'Loss'
+                            ? 'text-destructive'
+                            : ''
+                      }
+                    >
+                      {trade.outcome ?? 'Open'}
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {accountById.get(trade.accountId)?.name ??
+                      'Deleted account'}{' '}
+                    · {trade.resultR > 0 ? '+' : ''}
+                    {trade.resultR}R
+                  </span>
+                </div>
+                {screenshots.length ? (
+                  <div
+                    className={`grid gap-3 p-3 ${screenshots.length > 1 ? 'md:grid-cols-2' : ''}`}
+                  >
+                    {screenshots.map((screenshot) => (
+                      <figure key={screenshot.label}>
+                        <div className="relative aspect-video overflow-hidden rounded-lg bg-muted">
+                          <Image
+                            src={screenshot.url}
+                            alt={`${screenshot.label} GBPUSD chart from ${date ? formatBacktestDate(date) : 'trade day'}`}
+                            fill
+                            sizes="(max-width: 768px) 90vw, 420px"
+                            className="object-contain"
+                          />
+                        </div>
+                        <figcaption className="mt-2 text-center text-xs font-medium text-muted-foreground">
+                          {screenshot.label} screenshot
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="p-6 text-center text-xs text-muted-foreground">
+                    No screenshot was saved for this trade.
+                  </p>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
