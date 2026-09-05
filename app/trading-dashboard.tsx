@@ -139,6 +139,12 @@ const londonTime = () =>
     minute: '2-digit',
     hourCycle: 'h23',
   }).format(new Date());
+const availableYears = (dates: string[]) =>
+  [...new Set(dates.map((date) => date.slice(0, 4)))]
+    .filter((year) => /^\d{4}$/.test(year))
+    .sort((a, b) => b.localeCompare(a));
+const isInYear = (date: string, year: string) =>
+  year === 'all' || date.startsWith(`${year}-`);
 async function fetchBacktests() {
   const response = await fetch('/api/backtests', { cache: 'no-store' });
   if (!response.ok) throw new Error('Unable to load backtests');
@@ -1085,6 +1091,7 @@ function Backtesting({
   loading: boolean;
 }) {
   const [backtestTab, setBacktestTab] = useState<BacktestTab>('log');
+  const [backtestYear, setBacktestYear] = useState('all');
   const [resultRInput, setResultRInput] = useState('1');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
@@ -1185,11 +1192,24 @@ function Backtesting({
     }
   };
 
-  const winCount = backtests.filter((item) => item.resultR > 0).length;
-  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
-  const averageR = backtests.length ? netR / backtests.length : 0;
+  const analyticsYears = availableYears(
+    backtests.map((item) => item.backtestDate),
+  );
+  const filteredBacktests = backtests.filter((item) =>
+    isInYear(item.backtestDate, backtestYear),
+  );
+  const winCount = filteredBacktests.filter((item) => item.resultR > 0).length;
+  const netR = filteredBacktests.reduce(
+    (total, item) => total + item.resultR,
+    0,
+  );
+  const averageR = filteredBacktests.length
+    ? netR / filteredBacktests.length
+    : 0;
   const percentage = (count: number) =>
-    backtests.length ? `${Math.round((count / backtests.length) * 100)}%` : '—';
+    filteredBacktests.length
+      ? `${Math.round((count / filteredBacktests.length) * 100)}%`
+      : '—';
 
   return (
     <>
@@ -1203,18 +1223,28 @@ function Backtesting({
         historyCount={backtests.length}
         onChange={setBacktestTab}
       />
+      {(backtestTab === 'analytics' || backtestTab === 'history') && (
+        <YearFilter
+          value={backtestYear}
+          years={analyticsYears}
+          onChange={setBacktestYear}
+        />
+      )}
       {backtestTab === 'analytics' && (
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <BacktestStat label="Total trades" value={`${backtests.length}`} />
+          <BacktestStat
+            label="Total trades"
+            value={`${filteredBacktests.length}`}
+          />
           <BacktestStat label="Win rate" value={percentage(winCount)} />
           <BacktestStat
             label="Average RR"
-            value={backtests.length ? `${averageR.toFixed(2)}R` : '—'}
+            value={filteredBacktests.length ? `${averageR.toFixed(2)}R` : '—'}
           />
           <BacktestStat
             label="Net result"
             value={
-              backtests.length
+              filteredBacktests.length
                 ? `${netR >= 0 ? '+' : ''}${netR.toFixed(1)}R`
                 : '—'
             }
@@ -1235,7 +1265,7 @@ function Backtesting({
         />
       )}
       {backtestTab === 'analytics' && (
-        <BacktestEquityCurve backtests={backtests} />
+        <BacktestEquityCurve backtests={filteredBacktests} />
       )}
       {backtestTab === 'log' && (
         <form
@@ -1403,23 +1433,25 @@ function Backtesting({
                 Your saved GBPUSD results and chart screenshots.
               </p>
             </div>
-            <Badge variant="outline">{backtests.length} entries</Badge>
+            <Badge variant="outline">{filteredBacktests.length} entries</Badge>
           </div>
           {loading ? (
             <div className="flex min-h-28 items-center justify-center">
               <Activity className="size-4 animate-spin text-primary" />
             </div>
-          ) : backtests.length === 0 ? (
+          ) : filteredBacktests.length === 0 ? (
             <div className="mt-5 rounded-xl border border-dashed border-border p-8 text-center">
               <BarChart3 className="mx-auto size-6 text-primary" />
-              <p className="mt-3 text-sm font-medium">No saved backtests yet</p>
+              <p className="mt-3 text-sm font-medium">
+                No backtests in this period
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Save a result above and your analytics will appear here.
               </p>
             </div>
           ) : (
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {backtests.map((item) => (
+              {filteredBacktests.map((item) => (
                 <article
                   key={item.id}
                   className="overflow-hidden rounded-xl border border-border bg-card"
@@ -1864,6 +1896,44 @@ function BacktestStat({ label, value }: { label: string; value: string }) {
         {label}
       </p>
       <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
+    </div>
+  );
+}
+function YearFilter({
+  value,
+  years,
+  onChange,
+}: {
+  value: string;
+  years: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="mb-5 flex justify-end">
+      <div className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 sm:w-auto">
+        <Label className="shrink-0 text-xs text-muted-foreground">Period</Label>
+        <Select
+          value={value}
+          onValueChange={(nextValue) => {
+            if (nextValue) onChange(nextValue);
+          }}
+        >
+          <SelectTrigger
+            className="h-9 min-w-0 flex-1 sm:w-36"
+            aria-label="Filter performance by year"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All time</SelectItem>
+            {years.map((year) => (
+              <SelectItem key={year} value={year}>
+                {year}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
@@ -2945,17 +3015,33 @@ function Analytics({
   backtests: SavedBacktest[];
   trades: SavedTrade[];
 }) {
-  const wins = backtests.filter((item) => item.resultR > 0).length;
-  const losses = backtests.filter((item) => item.resultR < 0).length;
-  const breakeven = backtests.length - wins - losses;
-  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
-  const best = backtests.length
-    ? Math.max(...backtests.map((item) => item.resultR))
+  const [performanceYear, setPerformanceYear] = useState('all');
+  const performanceYears = availableYears([
+    ...backtests.map((item) => item.backtestDate),
+    ...trades.map((item) => item.tradeDate),
+  ]);
+  const filteredBacktests = backtests.filter((item) =>
+    isInYear(item.backtestDate, performanceYear),
+  );
+  const filteredTrades = trades.filter((item) =>
+    isInYear(item.tradeDate, performanceYear),
+  );
+  const wins = filteredBacktests.filter((item) => item.resultR > 0).length;
+  const losses = filteredBacktests.filter((item) => item.resultR < 0).length;
+  const breakeven = filteredBacktests.length - wins - losses;
+  const netR = filteredBacktests.reduce(
+    (total, item) => total + item.resultR,
+    0,
+  );
+  const best = filteredBacktests.length
+    ? Math.max(...filteredBacktests.map((item) => item.resultR))
     : null;
-  const worst = backtests.length
-    ? Math.min(...backtests.map((item) => item.resultR))
+  const worst = filteredBacktests.length
+    ? Math.min(...filteredBacktests.map((item) => item.resultR))
     : null;
-  const completedTrades = trades.filter((item) => item.outcome !== null);
+  const completedTrades = filteredTrades.filter(
+    (item) => item.outcome !== null,
+  );
   const liveWins = completedTrades.filter(
     (item) => item.outcome === 'Win',
   ).length;
@@ -2977,7 +3063,7 @@ function Analytics({
     completedTrades.map((item) => item.outcome!),
   );
   const backtestStreaks = longestOutcomeStreaks(
-    backtests.map((item) =>
+    filteredBacktests.map((item) =>
       item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
     ),
   );
@@ -2991,9 +3077,17 @@ function Analytics({
         title="Performance"
         description="Compare your researched edge with your real GBPUSD trading results."
       />
+      <YearFilter
+        value={performanceYear}
+        years={performanceYears}
+        onChange={setPerformanceYear}
+      />
       <div className="grid gap-4 xl:grid-cols-3">
         <article className="surface p-5">
-          <h2 className="text-sm font-semibold">Account performance</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Account performance</h2>
+            <Badge variant="outline">All time</Badge>
+          </div>
           {accounts.length ? (
             <div className="mt-6 space-y-5">
               {accounts.map((account) => {
@@ -3089,15 +3183,15 @@ function Analytics({
             <AnalyticsRow
               label="Win rate"
               value={
-                backtests.length
-                  ? `${Math.round((wins / backtests.length) * 100)}%`
+                filteredBacktests.length
+                  ? `${Math.round((wins / filteredBacktests.length) * 100)}%`
                   : '—'
               }
             />
             <AnalyticsRow
               label="Net RR"
               value={
-                backtests.length
+                filteredBacktests.length
                   ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
                   : '—'
               }
@@ -3115,12 +3209,16 @@ function Analytics({
             />
             <AnalyticsRow
               label="Most wins in a row"
-              value={backtests.length ? String(backtestStreaks.wins) : '—'}
+              value={
+                filteredBacktests.length ? String(backtestStreaks.wins) : '—'
+              }
               tone={backtestStreaks.wins ? 'win' : undefined}
             />
             <AnalyticsRow
               label="Most losses in a row"
-              value={backtests.length ? String(backtestStreaks.losses) : '—'}
+              value={
+                filteredBacktests.length ? String(backtestStreaks.losses) : '—'
+              }
               tone={backtestStreaks.losses ? 'loss' : undefined}
             />
           </div>
