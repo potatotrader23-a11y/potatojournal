@@ -1102,6 +1102,9 @@ function Backtesting({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SavedBacktest | null>(null);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<
+    string | null
+  >(null);
   const [saveState, setSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
@@ -1262,6 +1265,7 @@ function Backtesting({
             setSaveState('idle');
             setBacktestTab('log');
           }}
+          onResultSelect={setSelectedCalendarDate}
         />
       )}
       {backtestTab === 'analytics' && (
@@ -1514,6 +1518,13 @@ function Backtesting({
           )}
         </section>
       )}
+      <BacktestDayDialog
+        date={selectedCalendarDate}
+        backtests={backtests.filter(
+          (item) => item.backtestDate === selectedCalendarDate,
+        )}
+        onOpenChange={(open) => !open && setSelectedCalendarDate(null)}
+      />
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
@@ -1671,8 +1682,8 @@ function BacktestCalendar({
             <h2 className="text-sm font-semibold">Win / loss calendar</h2>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Daily GBPUSD results. Select a day to log another{' '}
-            {mode === 'live' ? 'trade' : 'backtest'}.
+            Daily GBPUSD results. Select a result day to review it, or an empty
+            day to log another {mode === 'live' ? 'trade' : 'backtest'}.
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -1786,6 +1797,86 @@ function BacktestCalendar({
         <CalendarLegend className="bg-muted-foreground" label="Breakeven" />
       </div>
     </section>
+  );
+}
+function BacktestDayDialog({
+  date,
+  backtests,
+  onOpenChange,
+}: {
+  date: string | null;
+  backtests: SavedBacktest[];
+  onOpenChange: (open: boolean) => void;
+}) {
+  const netR = backtests.reduce((total, item) => total + item.resultR, 0);
+
+  return (
+    <Dialog open={Boolean(date)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>
+            {date ? formatBacktestDate(date) : 'Backtest screenshots'}
+          </DialogTitle>
+          <DialogDescription>
+            {backtests.length}{' '}
+            {backtests.length === 1 ? 'backtest' : 'backtests'}
+            {' · '}
+            {netR > 0 ? '+' : ''}
+            {netR.toFixed(1)}R total
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {backtests.map((backtest, index) => (
+            <article
+              key={backtest.id}
+              className="overflow-hidden rounded-xl border border-border bg-card"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">GBPUSD</p>
+                  <p className="text-xs text-muted-foreground">
+                    Backtest {index + 1}
+                  </p>
+                </div>
+                <Badge
+                  variant="secondary"
+                  className={
+                    backtest.resultR > 0
+                      ? 'bg-emerald-500/10 text-emerald-500'
+                      : backtest.resultR < 0
+                        ? 'bg-destructive/10 text-destructive'
+                        : ''
+                  }
+                >
+                  {backtest.resultR > 0 ? '+' : ''}
+                  {backtest.resultR}R
+                </Badge>
+              </div>
+              {backtest.imageUrl ? (
+                <figure className="p-3">
+                  <div className="relative aspect-video overflow-hidden rounded-lg bg-muted">
+                    <Image
+                      src={backtest.imageUrl}
+                      alt={`GBPUSD backtest chart from ${date ? formatBacktestDate(date) : 'selected day'}`}
+                      fill
+                      sizes="(max-width: 768px) 90vw, 820px"
+                      className="object-contain"
+                    />
+                  </div>
+                  <figcaption className="mt-2 text-center text-xs font-medium text-muted-foreground">
+                    Backtest chart screenshot
+                  </figcaption>
+                </figure>
+              ) : (
+                <p className="p-8 text-center text-xs text-muted-foreground">
+                  No screenshot was saved for this backtest.
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 function CalendarSummary({
