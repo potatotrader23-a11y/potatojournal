@@ -23,7 +23,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('trades')
     .select(
-      'id, account_id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, lot_size, exit_price, result_r, pnl, mae_pips, notes, image_path, post_image_path, outcome, completed_at, created_at',
+      'id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, lot_size, exit_price, result_r, pnl, mae_pips, notes, image_path, post_image_path, outcome, completed_at, created_at',
     )
     .order('trade_date', { ascending: false })
     .order('trade_time', { ascending: false })
@@ -50,7 +50,6 @@ export async function GET() {
   return Response.json(
     rows.map((row, index) => ({
       id: row.id,
-      accountId: row.account_id,
       instrument: row.instrument,
       session: row.session,
       timeframe: row.timeframe,
@@ -89,7 +88,6 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
   const formData = await request.formData();
-  const accountId = formData.get('accountId');
   const direction = formData.get('direction');
   const tradeDate = cleanTradeDate(formData.get('tradeDate'));
   const tradeTime = cleanTradeTime(formData.get('tradeTime'));
@@ -97,12 +95,6 @@ export async function POST(request: Request) {
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
 
-  if (typeof accountId !== 'string' || !accountId.trim()) {
-    return Response.json(
-      { error: 'Select a trading account' },
-      { status: 400 },
-    );
-  }
   if (direction !== 'Buy' && direction !== 'Sell') {
     return Response.json({ error: 'Choose Buy or Sell' }, { status: 400 });
   }
@@ -131,7 +123,7 @@ export async function POST(request: Request) {
   const { error } = await supabase.from('trades').insert({
     id,
     user_id: user.id,
-    account_id: accountId,
+    account_id: null,
     instrument: 'GBPUSD',
     session: 'London',
     timeframe: '15m',

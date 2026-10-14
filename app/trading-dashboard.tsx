@@ -6,7 +6,6 @@ import {
   Activity,
   BarChart3,
   BookOpenCheck,
-  BriefcaseBusiness,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -68,7 +67,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
-type View = 'overview' | 'accounts' | 'backtesting' | 'journal' | 'analytics';
+type View = 'overview' | 'backtesting' | 'journal' | 'analytics';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
   id: string;
@@ -94,7 +93,6 @@ type SavedBacktest = {
 };
 type SavedTrade = {
   id: string;
-  accountId: string;
   instrument: 'GBPUSD';
   session: 'London';
   timeframe: '15m';
@@ -150,11 +148,6 @@ async function fetchBacktests() {
   if (!response.ok) throw new Error('Unable to load backtests');
   return (await response.json()) as SavedBacktest[];
 }
-async function fetchAccounts() {
-  const response = await fetch('/api/accounts');
-  if (!response.ok) throw new Error('Unable to load accounts');
-  return (await response.json()) as TradingAccount[];
-}
 async function fetchTrades() {
   const response = await fetch('/api/trades');
   if (!response.ok) throw new Error('Unable to load trades');
@@ -164,7 +157,6 @@ async function fetchTrades() {
 const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'journal', label: 'Journal', icon: BookOpenCheck },
-  { id: 'accounts', label: 'Accounts', icon: WalletCards },
   { id: 'backtesting', label: 'Backtesting', icon: FlaskConical },
   { id: 'analytics', label: 'Performance', icon: BarChart3 },
 ];
@@ -177,19 +169,11 @@ const money = (value: number, currency = 'USD') =>
 
 export default function TradingDashboard({ userEmail }: { userEmail: string }) {
   const [view, setView] = useState<View>('overview');
-  const [accounts, setAccounts] = useState<TradingAccount[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(true);
   const [backtests, setBacktests] = useState<SavedBacktest[]>([]);
   const [backtestsLoading, setBacktestsLoading] = useState(true);
   const [trades, setTrades] = useState<SavedTrade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(true);
-  const [activeId, setActiveId] = useState('');
-  const [compareIds, setCompareIds] = useState<string[]>([]);
   const [light, setLight] = useState(false);
-  const [dialog, setDialog] = useState(false);
-  const [editing, setEditing] = useState<TradingAccount | null>(null);
-  const active = accounts.find((a) => a.id === activeId) ?? accounts[0];
-  const compared = accounts.filter((a) => compareIds.includes(a.id));
   const toggleTheme = () => {
     setLight((current) => {
       const next = !current;
@@ -203,67 +187,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
     window.location.assign('/login');
   };
   const refreshLiveJournal = async () => {
-    const [savedAccounts, savedTrades] = await Promise.all([
-      fetchAccounts(),
-      fetchTrades(),
-    ]);
-    setAccounts(savedAccounts);
-    setTrades(savedTrades);
+    setTrades(await fetchTrades());
   };
-
   useEffect(() => {
-    const context = (
-      document as Document & {
-        modelContext?: {
-          registerTool: (
-            tool: {
-              name: string;
-              title: string;
-              description: string;
-              inputSchema: object;
-              annotations: object;
-              execute: () => object;
-            },
-            options: { signal: AbortSignal },
-          ) => void | Promise<void>;
-        };
-      }
-    ).modelContext;
-    if (!context?.registerTool) return;
-    const lifecycle = new AbortController();
-    void Promise.resolve(
-      context.registerTool(
-        {
-          name: 'start_account_creation',
-          title: 'Add a trading account',
-          description:
-            'Open the trading-account form so the user can review and set balance and risk limits.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-            additionalProperties: false,
-          },
-          annotations: { readOnlyHint: false, untrustedContentHint: false },
-          execute: () => {
-            setEditing(null);
-            setDialog(true);
-            return { status: 'ready', visibleForm: 'trading-account' };
-          },
-        },
-        { signal: lifecycle.signal },
-      ),
-    ).catch(() => undefined);
-    return () => lifecycle.abort();
-  }, []);
-  useEffect(() => {
-    void fetchAccounts()
-      .then((saved) => {
-        setAccounts(saved);
-        setActiveId(saved[0]?.id ?? '');
-        setCompareIds(saved.slice(0, 2).map((account) => account.id));
-      })
-      .catch(() => setAccounts([]))
-      .finally(() => setAccountsLoading(false));
     void fetchBacktests()
       .then(setBacktests)
       .catch(() => setBacktests([]))
@@ -273,27 +199,6 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
       .catch(() => setTrades([]))
       .finally(() => setTradesLoading(false));
   }, []);
-  const openAccount = (account?: TradingAccount) => {
-    setEditing(account ?? null);
-    setDialog(true);
-  };
-  const saveAccount = (account: TradingAccount) => {
-    setAccounts((current) =>
-      editing
-        ? current.map((item) => (item.id === account.id ? account : item))
-        : [...current, account],
-    );
-    if (!editing) {
-      setActiveId(account.id);
-      setCompareIds((current) => [...current, account.id]);
-    }
-    setDialog(false);
-    void fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(account),
-    }).catch(() => undefined);
-  };
   return (
     <main className="app-canvas min-h-screen bg-background text-foreground transition-colors duration-300">
       <DesktopSidebar view={view} onView={setView} />
@@ -345,44 +250,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               </div>
             </SheetContent>
           </Sheet>
-          {accountsLoading ? (
-            <span className="px-2 text-xs text-muted-foreground">
-              Loading accounts…
-            </span>
-          ) : active ? (
-            <>
-              <Select
-                value={activeId}
-                onValueChange={(value) => value && setActiveId(value)}
-              >
-                <SelectTrigger className="h-9 min-w-0 border-0 bg-transparent px-2 text-xs font-medium sm:min-w-[190px] sm:text-sm">
-                  <BriefcaseBusiness className="hidden size-4 text-primary sm:block" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Badge
-                variant="outline"
-                className="ml-1 hidden border-secondary/35 bg-secondary/10 text-[10px] md:flex"
-              >
-                {active.type}
-              </Badge>
-            </>
-          ) : (
-            <Button
-              variant="ghost"
-              className="h-9 text-xs"
-              onClick={() => openAccount()}
-            >
-              <Plus /> Add account
-            </Button>
-          )}
+          <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
+            <Activity className="size-4 text-primary" /> GBPUSD · London · 15m
+          </div>
           <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
@@ -416,23 +286,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
         <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
           {view === 'overview' && (
             <Overview
-              accounts={accounts}
-              active={active}
-              compared={compared}
-              compareIds={compareIds}
-              onCompare={setCompareIds}
-              onAdd={() => openAccount()}
-              loading={accountsLoading}
-            />
-          )}
-          {view === 'accounts' && (
-            <Accounts
-              accounts={accounts}
-              onAdd={() => openAccount()}
-              onEdit={openAccount}
-              onActive={setActiveId}
-              activeId={activeId}
-              loading={accountsLoading}
+              backtests={backtests}
+              trades={trades}
+              loading={backtestsLoading || tradesLoading}
             />
           )}
           {view === 'backtesting' && (
@@ -444,28 +300,16 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
           )}{' '}
           {view === 'journal' && (
             <Journal
-              accounts={accounts}
               trades={trades}
-              loading={accountsLoading || tradesLoading}
-              activeAccountId={active?.id ?? ''}
+              loading={tradesLoading}
               onChanged={refreshLiveJournal}
             />
           )}{' '}
           {view === 'analytics' && (
-            <Analytics
-              accounts={accounts}
-              backtests={backtests}
-              trades={trades}
-            />
+            <Analytics backtests={backtests} trades={trades} />
           )}
         </div>
       </section>
-      <AccountDialog
-        open={dialog}
-        onOpenChange={setDialog}
-        editing={editing}
-        onSave={saveAccount}
-      />
     </main>
   );
 }
@@ -521,11 +365,11 @@ function DesktopSidebar({
         <div className="mb-3 flex items-center gap-2 text-accent-foreground dark:text-accent">
           <Sparkles className="size-4" />
           <span className="text-[10px] font-semibold uppercase tracking-wider">
-            Risk pulse
+            Focus market
           </span>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Every account keeps its own balance, risk per trade, and loss limits.
+          GBPUSD · London session · 15-minute timeframe.
         </p>
       </div>
     </aside>
@@ -533,153 +377,70 @@ function DesktopSidebar({
 }
 
 function Overview({
-  accounts,
-  active,
-  compared,
-  compareIds,
-  onCompare,
-  onAdd,
+  backtests,
+  trades,
   loading,
 }: {
-  accounts: TradingAccount[];
-  active: TradingAccount | undefined;
-  compared: TradingAccount[];
-  compareIds: string[];
-  onCompare: (ids: string[]) => void;
-  onAdd: () => void;
+  backtests: SavedBacktest[];
+  trades: SavedTrade[];
   loading: boolean;
 }) {
-  const totalBalance = compared.reduce(
-    (sum, account) => sum + account.balance,
+  const completed = trades.filter((trade) => trade.outcome !== null);
+  const wins = completed.filter((trade) => trade.outcome === 'Win').length;
+  const liveNetR = completed.reduce((sum, trade) => sum + trade.resultR, 0);
+  const liveNetPnl = completed.reduce((sum, trade) => sum + trade.pnl, 0);
+  const backtestNetR = backtests.reduce(
+    (sum, backtest) => sum + backtest.resultR,
     0,
   );
-  const totalPnl = compared.reduce((sum, account) => sum + account.pnl, 0);
-  const oneCurrency =
-    compared.length > 0 &&
-    compared.every((account) => account.currency === compared[0].currency);
-  const riskAmount = active ? (active.balance * active.riskPercent) / 100 : 0;
-  const maxLossFloor = active
-    ? active.startingBalance * (1 - active.maxLossPercent / 100)
-    : 0;
-  const lossBuffer = active ? active.balance - maxLossFloor : 0;
-  const accountValue = !compared.length
-    ? '—'
-    : oneCurrency
-      ? money(totalBalance, compared[0].currency)
-      : 'Mixed';
-  const pnlValue = !compared.length
-    ? '—'
-    : oneCurrency
-      ? money(totalPnl, compared[0].currency)
-      : 'Mixed';
   return (
     <>
       <PageHeading
-        eyebrow="Portfolio command center"
+        eyebrow="Trading command center"
         title="Trade the plan, not the noise."
-        description="Every account keeps its own risk model. Compare them without mixing their rules or performance."
-        action={
-          <Button variant="outline" className="h-10 rounded-xl" onClick={onAdd}>
-            <Plus /> Add account
-          </Button>
-        }
+        description="A clean view of your GBPUSD live journal and backtesting progress."
       />
-      {accounts.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Compare
-          </span>
-          {accounts.map((account) => {
-            const selected = compareIds.includes(account.id);
-            return (
-              <button
-                key={account.id}
-                type="button"
-                onClick={() =>
-                  onCompare(
-                    selected
-                      ? compareIds.filter((id) => id !== account.id)
-                      : [...compareIds, account.id],
-                  )
-                }
-                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] ${selected ? 'border-primary/35 bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-              >
-                {selected && <Check className="size-3" />}
-                {account.name}
-              </button>
-            );
-          })}
-        </div>
-      ) : !loading ? (
-        <div className="surface mb-3 flex flex-wrap items-center justify-between gap-3 border-dashed p-4">
-          <div>
-            <p className="text-sm font-medium">No trading account yet</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Add one to calculate balance-based risk and loss limits.
-            </p>
-          </div>
-          <Button type="button" size="sm" onClick={onAdd}>
-            <Plus /> Add account
-          </Button>
-        </div>
-      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="Account balance"
-          value={loading ? '…' : accountValue}
-          detail={
-            compared.length
-              ? `${compared.length} selected account${compared.length === 1 ? '' : 's'}`
-              : 'No account data'
-          }
-          icon={WalletCards}
+          label="Completed live trades"
+          value={loading ? '…' : String(completed.length)}
+          detail={`${trades.length - completed.length} currently open`}
+          icon={BookOpenCheck}
         />
         <Metric
-          label="Account P&L"
-          value={loading ? '…' : pnlValue}
-          detail="Current balance minus starting balance"
-          positive={totalPnl > 0}
-          icon={totalPnl < 0 ? TrendingDown : TrendingUp}
-        />
-        <Metric
-          label="Risk per trade"
+          label="Live win rate"
           value={
-            loading ? '…' : active ? money(riskAmount, active.currency) : '—'
+            loading
+              ? '…'
+              : completed.length
+                ? `${Math.round((wins / completed.length) * 100)}%`
+                : '—'
           }
-          detail={
-            active
-              ? `${active.riskPercent}% of ${active.name}`
-              : 'No account selected'
-          }
-          icon={ShieldCheck}
+          detail={`${wins} winning trade${wins === 1 ? '' : 's'}`}
+          positive={wins > 0}
+          icon={Target}
         />
         <Metric
-          label="Loss buffer"
+          label="Live result"
           value={
-            loading ? '…' : active ? money(lossBuffer, active.currency) : '—'
+            loading ? '…' : `${liveNetR > 0 ? '+' : ''}${liveNetR.toFixed(1)}R`
           }
-          detail="Room before the account's maximum loss limit"
-          positive={lossBuffer > 0}
-          icon={lossBuffer < 0 ? TrendingDown : ShieldCheck}
+          detail={`${money(liveNetPnl)} net P&L`}
+          positive={liveNetR > 0}
+          icon={liveNetR < 0 ? TrendingDown : TrendingUp}
+        />
+        <Metric
+          label="Backtest result"
+          value={
+            loading
+              ? '…'
+              : `${backtestNetR > 0 ? '+' : ''}${backtestNetR.toFixed(1)}R`
+          }
+          detail={`${backtests.length} saved backtest${backtests.length === 1 ? '' : 's'}`}
+          positive={backtestNetR > 0}
+          icon={FlaskConical}
         />
       </div>
-      {active ? (
-        <>
-          <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.75fr)]">
-            <AccountEquityCurve
-              accounts={compared.length ? compared : [active]}
-            />
-            <RiskCard account={active} />
-          </div>
-          <div className="mt-3">
-            <AccountSnapshot accounts={accounts} active={active} />
-          </div>
-        </>
-      ) : !loading ? (
-        <div className="mt-3">
-          <EmptyAccountCard onAdd={onAdd} />
-        </div>
-      ) : null}
     </>
   );
 }
@@ -1219,7 +980,7 @@ function Backtesting({
       <PageHeading
         eyebrow="Strategy laboratory"
         title="Backtesting"
-        description="A dedicated GBPUSD research workspace, completely separate from your live trading accounts."
+        description="A dedicated GBPUSD research workspace, separate from your live journal."
       />
       <BacktestTabs
         value={backtestTab}
@@ -2037,16 +1798,12 @@ function formatBacktestDate(value: string) {
   });
 }
 function Journal({
-  accounts,
   trades,
   loading,
-  activeAccountId,
   onChanged,
 }: {
-  accounts: TradingAccount[];
   trades: SavedTrade[];
   loading: boolean;
-  activeAccountId: string;
   onChanged: () => Promise<void>;
 }) {
   const [journalTab, setJournalTab] = useState<JournalTab>('trades');
@@ -2071,9 +1828,6 @@ function Journal({
     imageUrl: item.imageUrl,
     createdAt: item.createdAt,
   }));
-  const oneCurrency =
-    accounts.length > 0 &&
-    accounts.every((account) => account.currency === accounts[0].currency);
   const openTrade = (date = londonToday()) => {
     setJournalDate(date);
     setDialogOpen(true);
@@ -2097,23 +1851,11 @@ function Journal({
         title="GBPUSD trading journal"
         description="Your London-session, 15-minute live trades. Backtests stay in their own workspace."
         action={
-          <Button onClick={() => openTrade()} disabled={!accounts.length}>
+          <Button onClick={() => openTrade()}>
             <Plus /> Add trade
           </Button>
         }
       />
-      {!loading && !accounts.length ? (
-        <div className="surface mb-4 border-dashed p-6 text-center">
-          <WalletCards className="mx-auto size-6 text-primary" />
-          <h2 className="mt-3 text-sm font-semibold">
-            Add a live account first
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Every live trade must belong to one trading account so its P&amp;L
-            and equity stay separate.
-          </p>
-        </div>
-      ) : null}
       <JournalTabs
         value={journalTab}
         tradeCount={trades.length}
@@ -2173,26 +1915,16 @@ function Journal({
             />
             <Metric
               label="Net P&L"
-              value={
-                loading
-                  ? '…'
-                  : completed.length && oneCurrency
-                    ? money(netPnl, accounts[0].currency)
-                    : '—'
-              }
-              detail={
-                oneCurrency ? 'Across your live accounts' : 'Mixed currencies'
-              }
+              value={loading ? '…' : completed.length ? money(netPnl) : '—'}
+              detail="Across completed live trades"
               positive={netPnl > 0}
               icon={netPnl < 0 ? TrendingDown : BarChart3}
             />
           </div>
-          {accounts.length ? <AccountEquityCurve accounts={accounts} /> : null}
         </>
       ) : null}
       {journalTab === 'trades' ? (
         <LiveTradeHistory
-          accounts={accounts}
           trades={trades}
           loading={loading}
           onAdd={() => openTrade()}
@@ -2201,27 +1933,21 @@ function Journal({
         />
       ) : null}
       <TradeDialog
-        key={`${dialogOpen}-${activeAccountId}-${journalDate}`}
+        key={`${dialogOpen}-${journalDate}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        accounts={accounts}
-        activeAccountId={activeAccountId}
         initialDate={journalDate}
         onSaved={onChanged}
       />
       <CompleteTradeDialog
         key={completeTarget?.id ?? 'no-trade'}
         trade={completeTarget}
-        account={accounts.find(
-          (account) => account.id === completeTarget?.accountId,
-        )}
         onOpenChange={(open) => !open && setCompleteTarget(null)}
         onSaved={onChanged}
       />
       <JournalDayDialog
         date={selectedDay}
         trades={trades.filter((trade) => trade.tradeDate === selectedDay)}
-        accounts={accounts}
         onOpenChange={(open) => !open && setSelectedDay(null)}
       />
       <AlertDialog
@@ -2232,8 +1958,7 @@ function Journal({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this live trade?</AlertDialogTitle>
             <AlertDialogDescription>
-              The trade, note, and chart image will be removed. Its P&amp;L will
-              also be reversed from the linked account.
+              The trade, note, and chart images will be permanently removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2302,16 +2027,12 @@ function JournalTabs({
 function JournalDayDialog({
   date,
   trades,
-  accounts,
   onOpenChange,
 }: {
   date: string | null;
   trades: SavedTrade[];
-  accounts: TradingAccount[];
   onOpenChange: (open: boolean) => void;
 }) {
-  const accountById = new Map(accounts.map((account) => [account.id, account]));
-
   return (
     <Dialog open={Boolean(date)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
@@ -2354,9 +2075,7 @@ function JournalDayDialog({
                     </Badge>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {accountById.get(trade.accountId)?.name ??
-                      'Deleted account'}{' '}
-                    · {trade.resultR > 0 ? '+' : ''}
+                    {trade.resultR > 0 ? '+' : ''}
                     {trade.resultR}R
                     {trade.maePips === null
                       ? ''
@@ -2399,21 +2118,18 @@ function JournalDayDialog({
 }
 
 function LiveTradeHistory({
-  accounts,
   trades,
   loading,
   onAdd,
   onComplete,
   onDelete,
 }: {
-  accounts: TradingAccount[];
   trades: SavedTrade[];
   loading: boolean;
   onAdd: () => void;
   onComplete: (trade: SavedTrade) => void;
   onDelete: (trade: SavedTrade) => void;
 }) {
-  const accountById = new Map(accounts.map((account) => [account.id, account]));
   const [imagePreview, setImagePreview] = useState<{
     url: string;
     label: string;
@@ -2437,7 +2153,6 @@ function LiveTradeHistory({
         ) : trades.length ? (
           <div className="divide-y divide-border">
             {trades.map((trade) => {
-              const account = accountById.get(trade.accountId);
               return (
                 <div key={trade.id} className="p-4 sm:p-5">
                   <div className="flex flex-col gap-4 sm:flex-row">
@@ -2497,8 +2212,7 @@ function LiveTradeHistory({
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {formatBacktestDate(trade.tradeDate)} ·{' '}
-                            {trade.tradeTime} ·{' '}
-                            {account?.name ?? 'Deleted account'}
+                            {trade.tradeTime}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
@@ -2534,11 +2248,7 @@ function LiveTradeHistory({
                         />
                         <TradeValue
                           label="P&L"
-                          value={
-                            trade.outcome
-                              ? money(trade.pnl, account?.currency ?? 'USD')
-                              : 'Pending'
-                          }
+                          value={trade.outcome ? money(trade.pnl) : 'Pending'}
                           tone={trade.outcome ? trade.pnl : undefined}
                         />
                         <TradeValue
@@ -2585,11 +2295,9 @@ function LiveTradeHistory({
             <p className="mt-1 text-xs text-muted-foreground">
               Add your first GBPUSD London-session trade.
             </p>
-            {accounts.length ? (
-              <Button size="sm" className="mt-4" onClick={onAdd}>
-                <Plus /> Add trade
-              </Button>
-            ) : null}
+            <Button size="sm" className="mt-4" onClick={onAdd}>
+              <Plus /> Add trade
+            </Button>
           </div>
         )}
       </article>
@@ -2644,12 +2352,10 @@ function TradeValue({
 
 function CompleteTradeDialog({
   trade,
-  account,
   onOpenChange,
   onSaved,
 }: {
   trade: SavedTrade | null;
-  account: TradingAccount | undefined;
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
@@ -2736,7 +2442,7 @@ function CompleteTradeDialog({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <SignedRField value={resultR} onChange={setResultR} />
-            <Field label={`P&L${account ? ` (${account.currency})` : ''}`}>
+            <Field label="P&L (USD)">
               <Input
                 required
                 type="text"
@@ -2818,20 +2524,15 @@ function CompleteTradeDialog({
 function TradeDialog({
   open,
   onOpenChange,
-  accounts,
-  activeAccountId,
   initialDate,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accounts: TradingAccount[];
-  activeAccountId: string;
   initialDate: string;
   onSaved: () => Promise<void>;
 }) {
   const [form, setForm] = useState({
-    accountId: activeAccountId || accounts[0]?.id || '',
     tradeDate: initialDate,
     tradeTime: londonTime(),
     direction: 'Buy' as 'Buy' | 'Sell',
@@ -2874,25 +2575,6 @@ function TradeDialog({
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Trading account">
-              <Select
-                value={form.accountId}
-                onValueChange={(value) =>
-                  value && setForm({ ...form, accountId: value })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
             <Field label="Direction">
               <Select
                 value={form.direction}
@@ -2974,7 +2656,7 @@ function TradeDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !form.accountId}>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Saving…' : 'Save live trade'}
             </Button>
           </DialogFooter>
@@ -2984,11 +2666,9 @@ function TradeDialog({
   );
 }
 function Analytics({
-  accounts,
   backtests,
   trades,
 }: {
-  accounts: TradingAccount[];
   backtests: SavedBacktest[];
   trades: SavedTrade[];
 }) {
@@ -3044,9 +2724,6 @@ function Analytics({
       item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
     ),
   );
-  const oneCurrency =
-    accounts.length > 0 &&
-    accounts.every((account) => account.currency === accounts[0].currency);
   return (
     <>
       <PageHeading
@@ -3059,47 +2736,7 @@ function Analytics({
         years={performanceYears}
         onChange={setPerformanceYear}
       />
-      <div className="grid gap-4 xl:grid-cols-3">
-        <article className="surface p-5">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">Account performance</h2>
-            <Badge variant="outline">All time</Badge>
-          </div>
-          {accounts.length ? (
-            <div className="mt-6 space-y-5">
-              {accounts.map((account) => {
-                const growth = account.startingBalance
-                  ? (account.pnl / account.startingBalance) * 100
-                  : 0;
-                return (
-                  <div key={account.id}>
-                    <div className="mb-2 flex justify-between text-xs">
-                      <span>{account.name}</span>
-                      <span
-                        className={`font-semibold ${growth > 0 ? 'text-emerald-500' : growth < 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-                      >
-                        {growth > 0 ? '+' : ''}
-                        {growth.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-muted">
-                      <div
-                        className={`h-full rounded-full ${growth < 0 ? 'bg-destructive' : 'bg-primary'}`}
-                        style={{
-                          width: `${Math.min(Math.abs(growth) * 7, 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="mt-6 rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-              Add a trading account to see balance growth here.
-            </p>
-          )}
-        </article>
+      <div className="grid gap-4 xl:grid-cols-2">
         <article className="surface p-5">
           <h2 className="text-sm font-semibold">Live trade outcomes</h2>
           <div className="mt-5 grid grid-cols-3 gap-2">
@@ -3127,11 +2764,7 @@ function Analytics({
             />
             <AnalyticsRow
               label="Net P&L"
-              value={
-                completedTrades.length && oneCurrency
-                  ? money(liveNetPnl, accounts[0].currency)
-                  : '—'
-              }
+              value={completedTrades.length ? money(liveNetPnl) : '—'}
               tone={
                 liveNetPnl > 0 ? 'win' : liveNetPnl < 0 ? 'loss' : undefined
               }
@@ -3559,3 +3192,12 @@ function AccountForm({
     </form>
   );
 }
+
+// Kept outside the product flow only to preserve a reversible migration path
+// for existing account data while the journal no longer exposes accounts.
+void AccountEquityCurve;
+void RiskCard;
+void EmptyAccountCard;
+void AccountSnapshot;
+void Accounts;
+void AccountDialog;
