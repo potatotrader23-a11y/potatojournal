@@ -101,8 +101,8 @@ type SavedTrade = {
   tradeDate: string;
   tradeTime: string;
   direction: 'Buy' | 'Sell';
-  entryPrice: number;
-  stopLoss: number;
+  entryPrice: number | null;
+  stopLoss: number | null;
   lotSize: number | null;
   exitPrice: number | null;
   resultR: number;
@@ -2356,8 +2356,7 @@ function JournalDayDialog({
                   <span className="text-xs text-muted-foreground">
                     {accountById.get(trade.accountId)?.name ??
                       'Deleted account'}{' '}
-                    · {trade.lotSize === null ? '—' : `${trade.lotSize} lots`} ·{' '}
-                    {trade.resultR > 0 ? '+' : ''}
+                    · {trade.resultR > 0 ? '+' : ''}
                     {trade.resultR}R
                     {trade.maePips === null
                       ? ''
@@ -2523,27 +2522,7 @@ function LiveTradeHistory({
                           </Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:grid-cols-7">
-                        <TradeValue
-                          label="Entry"
-                          value={trade.entryPrice.toFixed(5)}
-                        />
-                        <TradeValue
-                          label="Stop"
-                          value={trade.stopLoss.toFixed(5)}
-                        />
-                        <TradeValue
-                          label="Lot size"
-                          value={
-                            trade.lotSize === null
-                              ? '—'
-                              : trade.lotSize.toFixed(2)
-                          }
-                        />
-                        <TradeValue
-                          label="Exit"
-                          value={trade.exitPrice?.toFixed(5) ?? '—'}
-                        />
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                         <TradeValue
                           label="RR"
                           value={
@@ -2674,12 +2653,6 @@ function CompleteTradeDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
-  const [outcome, setOutcome] = useState<'' | 'Win' | 'Loss' | 'Breakeven'>(
-    trade?.outcome ?? '',
-  );
-  const [exitPrice, setExitPrice] = useState(
-    trade?.exitPrice?.toString() ?? '',
-  );
   const [resultR, setResultR] = useState(trade?.resultR.toString() ?? '0');
   const [pnl, setPnl] = useState(trade?.pnl.toString() ?? '0');
   const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
@@ -2687,25 +2660,24 @@ function CompleteTradeDialog({
   const [postImage, setPostImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const chooseOutcome = (next: 'Win' | 'Loss' | 'Breakeven') => {
-    setOutcome(next);
-    const nextR = next === 'Win' ? 1 : next === 'Loss' ? -1 : 0;
-    setResultR(String(nextR));
-    if (account) {
-      const riskAmount = (account.balance * account.riskPercent) / 100;
-      setPnl(String(Math.round(riskAmount * nextR * 100) / 100));
-    } else {
-      setPnl('0');
-    }
-  };
+  const hasValidResultR =
+    resultR.trim() !== '' &&
+    resultR.trim() !== '-' &&
+    Number.isFinite(Number(resultR));
+  const parsedResultR = Number(resultR);
+  const outcome = hasValidResultR
+    ? parsedResultR > 0
+      ? 'Win'
+      : parsedResultR < 0
+        ? 'Loss'
+        : 'Breakeven'
+    : null;
   const save = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!trade || !outcome) return;
     setSaving(true);
     setError('');
     const payload = new FormData();
-    payload.set('outcome', outcome);
-    payload.set('exitPrice', exitPrice);
     payload.set('resultR', resultR);
     payload.set('pnl', pnl);
     payload.set('maePips', maePips);
@@ -2735,37 +2707,34 @@ function CompleteTradeDialog({
             {trade?.outcome ? 'Edit trade result' : 'Complete trade'}
           </DialogTitle>
           <DialogDescription>
-            Mark the outcome and add your post-trade GBPUSD screenshot.
+            Add the final RR, P&amp;L, MAE, and post-trade screenshot. Outcome
+            is calculated automatically from RR.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
-          <Field label="Outcome">
-            <div className="grid grid-cols-3 gap-2">
-              {(['Win', 'Loss', 'Breakeven'] as const).map((option) => (
-                <Button
-                  key={option}
-                  type="button"
-                  variant={outcome === option ? 'default' : 'outline'}
-                  onClick={() => chooseOutcome(option)}
-                >
-                  {option}
-                </Button>
-              ))}
+          <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-4 py-3">
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Calculated outcome
+              </p>
+              <p className="mt-0.5 text-sm font-medium">
+                Positive RR = Win · Negative RR = Loss · 0R = Breakeven
+              </p>
             </div>
-          </Field>
+            <Badge
+              variant="secondary"
+              className={
+                outcome === 'Win'
+                  ? 'bg-emerald-500/10 text-emerald-500'
+                  : outcome === 'Loss'
+                    ? 'bg-destructive/10 text-destructive'
+                    : ''
+              }
+            >
+              {outcome ?? 'Enter RR'}
+            </Badge>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Exit price">
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                step="0.00001"
-                min="0.00001"
-                placeholder="1.28000"
-                value={exitPrice}
-                onChange={(event) => setExitPrice(event.target.value)}
-              />
-            </Field>
             <SignedRField value={resultR} onChange={setResultR} />
             <Field label={`P&L${account ? ` (${account.currency})` : ''}`}>
               <Input
@@ -2866,12 +2835,6 @@ function TradeDialog({
     tradeDate: initialDate,
     tradeTime: londonTime(),
     direction: 'Buy' as 'Buy' | 'Sell',
-    entryPrice: '',
-    stopLoss: '',
-    lotSize: '',
-    exitPrice: '',
-    resultR: '0',
-    pnl: '0',
     notes: '',
   });
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -2900,17 +2863,6 @@ function TradeDialog({
     setSaving(false);
     onOpenChange(false);
   };
-  const signedValue = (value: string, onChange: (value: string) => void) => (
-    <Input
-      type="text"
-      inputMode="decimal"
-      value={value}
-      onChange={(event) => {
-        const next = event.target.value.replace(',', '.');
-        if (/^-?\d*(?:\.\d*)?$/.test(next)) onChange(next);
-      }}
-    />
-  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[680px]">
@@ -2977,72 +2929,6 @@ function TradeDialog({
                   setForm({ ...form, tradeTime: event.target.value })
                 }
               />
-            </Field>
-            <Field label="Entry price">
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                step="0.00001"
-                min="0.00001"
-                placeholder="1.27500"
-                value={form.entryPrice}
-                onChange={(event) =>
-                  setForm({ ...form, entryPrice: event.target.value })
-                }
-              />
-            </Field>
-            <Field label="Stop loss">
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                step="0.00001"
-                min="0.00001"
-                placeholder="1.27250"
-                value={form.stopLoss}
-                onChange={(event) =>
-                  setForm({ ...form, stopLoss: event.target.value })
-                }
-              />
-            </Field>
-            <Field label="Lot size">
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                min="0.01"
-                max="100000"
-                step="0.01"
-                placeholder="0.10"
-                value={form.lotSize}
-                onChange={(event) =>
-                  setForm({ ...form, lotSize: event.target.value })
-                }
-              />
-            </Field>
-            <Field label="Exit price (optional)">
-              <Input
-                type="number"
-                inputMode="decimal"
-                step="0.00001"
-                min="0.00001"
-                placeholder="1.28000"
-                value={form.exitPrice}
-                onChange={(event) =>
-                  setForm({ ...form, exitPrice: event.target.value })
-                }
-              />
-            </Field>
-            <SignedRField
-              label="Current RR (0 while open)"
-              value={form.resultR}
-              onChange={(value) => setForm({ ...form, resultR: value })}
-            />
-            <Field label="Current P&L (0 while open)">
-              {signedValue(form.pnl, (value) =>
-                setForm({ ...form, pnl: value }),
-              )}
             </Field>
           </div>
           <Field label="Entry screenshot (optional)">

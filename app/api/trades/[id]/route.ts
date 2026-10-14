@@ -34,43 +34,19 @@ export async function PATCH(
     return Response.json({ error: 'Trade not found' }, { status: 404 });
 
   const formData = await request.formData();
-  const outcome = formData.get('outcome');
-  const rawExitPrice = formData.get('exitPrice');
-  const exitPrice = cleanTradeNumber(rawExitPrice, { positive: true });
   const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
   const pnl = cleanTradeNumber(formData.get('pnl'));
   const maePips = cleanTradeNumber(formData.get('maePips'), { limit: 100000 });
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
-  if (outcome !== 'Win' && outcome !== 'Loss' && outcome !== 'Breakeven') {
+  if (resultR === null || pnl === null || maePips === null || maePips < 0) {
     return Response.json(
-      { error: 'Choose Win, Loss, or Breakeven' },
+      { error: 'Enter a valid RR, P&L, and MAE' },
       { status: 400 },
     );
   }
-  if (
-    exitPrice === null ||
-    resultR === null ||
-    pnl === null ||
-    maePips === null ||
-    maePips < 0
-  ) {
-    return Response.json(
-      { error: 'Enter a valid exit price, RR, P&L, and MAE' },
-      { status: 400 },
-    );
-  }
-  if (
-    (outcome === 'Win' && resultR <= 0) ||
-    (outcome === 'Loss' && resultR >= 0) ||
-    (outcome === 'Breakeven' && resultR !== 0)
-  ) {
-    return Response.json(
-      { error: 'The selected outcome must match the RR result' },
-      { status: 400 },
-    );
-  }
+  const outcome = resultR > 0 ? 'Win' : resultR < 0 ? 'Loss' : 'Breakeven';
 
   const postImage = formData.get('postImage');
   const imageError = validateTradeImage(postImage);
@@ -94,7 +70,6 @@ export async function PATCH(
     .from('trades')
     .update({
       outcome,
-      exit_price: exitPrice,
       result_r: resultR,
       pnl,
       mae_pips: maePips,

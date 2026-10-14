@@ -1,7 +1,6 @@
 import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 import {
   cleanTradeDate,
-  cleanTradeNumber,
   cleanTradeTime,
   tradeImagePath,
   validateTradeImage,
@@ -58,8 +57,8 @@ export async function GET() {
       tradeDate: row.trade_date,
       tradeTime: String(row.trade_time).slice(0, 5),
       direction: row.direction,
-      entryPrice: Number(row.entry_price),
-      stopLoss: Number(row.stop_loss),
+      entryPrice: row.entry_price === null ? null : Number(row.entry_price),
+      stopLoss: row.stop_loss === null ? null : Number(row.stop_loss),
       lotSize: row.lot_size === null ? null : Number(row.lot_size),
       exitPrice: row.exit_price === null ? null : Number(row.exit_price),
       resultR: Number(row.result_r),
@@ -94,26 +93,6 @@ export async function POST(request: Request) {
   const direction = formData.get('direction');
   const tradeDate = cleanTradeDate(formData.get('tradeDate'));
   const tradeTime = cleanTradeTime(formData.get('tradeTime'));
-  const entryPrice = cleanTradeNumber(formData.get('entryPrice'), {
-    positive: true,
-  });
-  const stopLoss = cleanTradeNumber(formData.get('stopLoss'), {
-    positive: true,
-  });
-  const lotSize = cleanTradeNumber(formData.get('lotSize'), {
-    positive: true,
-    limit: 100000,
-  });
-  const rawExitPrice = formData.get('exitPrice');
-  const exitPrice =
-    typeof rawExitPrice === 'string' && rawExitPrice.trim() === ''
-      ? null
-      : cleanTradeNumber(rawExitPrice, { positive: true });
-  const invalidExitPrice =
-    typeof rawExitPrice !== 'string' ||
-    (rawExitPrice.trim() !== '' && exitPrice === null);
-  const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
-  const pnl = cleanTradeNumber(formData.get('pnl'));
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
@@ -133,20 +112,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (
-    entryPrice === null ||
-    stopLoss === null ||
-    lotSize === null ||
-    invalidExitPrice ||
-    resultR === null ||
-    pnl === null
-  ) {
-    return Response.json(
-      { error: 'Check the trade prices, lot size, RR, and P&L' },
-      { status: 400 },
-    );
-  }
-
   const image = formData.get('image');
   const imageError = validateTradeImage(image);
   if (imageError) return Response.json({ error: imageError }, { status: 400 });
@@ -173,12 +138,12 @@ export async function POST(request: Request) {
     trade_date: tradeDate,
     trade_time: tradeTime,
     direction,
-    entry_price: entryPrice,
-    stop_loss: stopLoss,
-    lot_size: lotSize,
-    exit_price: exitPrice,
-    result_r: resultR,
-    pnl,
+    entry_price: null,
+    stop_loss: null,
+    lot_size: null,
+    exit_price: null,
+    result_r: 0,
+    pnl: 0,
     notes,
     image_path: imagePath,
   });
