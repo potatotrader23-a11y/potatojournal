@@ -23,7 +23,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('trades')
     .select(
-      'id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, lot_size, exit_price, result_r, pnl, mae_pips, notes, image_path, post_image_path, outcome, completed_at, created_at',
+      'id, instrument, session, timeframe, trade_date, trade_time, direction, entry_price, stop_loss, lot_size, exit_price, result_r, mae_pips, notes, image_path, post_image_path, outcome, completed_at, created_at',
     )
     .order('trade_date', { ascending: false })
     .order('trade_time', { ascending: false })
@@ -61,7 +61,6 @@ export async function GET() {
       lotSize: row.lot_size === null ? null : Number(row.lot_size),
       exitPrice: row.exit_price === null ? null : Number(row.exit_price),
       resultR: Number(row.result_r),
-      pnl: Number(row.pnl),
       maePips: row.mae_pips === null ? null : Number(row.mae_pips),
       notes: row.notes,
       imageUrl: signedImages[index][0],

@@ -35,14 +35,16 @@ export async function PATCH(
 
   const formData = await request.formData();
   const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
-  const pnl = cleanTradeNumber(formData.get('pnl'));
-  const maePips = cleanTradeNumber(formData.get('maePips'), { limit: 100000 });
+  const maePips =
+    resultR !== null && resultR < 0
+      ? null
+      : cleanTradeNumber(formData.get('maePips'), { limit: 100000 });
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
-  if (resultR === null || pnl === null || maePips === null || maePips < 0) {
+  if (resultR === null || (resultR >= 0 && (maePips === null || maePips < 0))) {
     return Response.json(
-      { error: 'Enter a valid RR, P&L, and MAE' },
+      { error: 'Enter a valid RR and MAE' },
       { status: 400 },
     );
   }
@@ -71,7 +73,6 @@ export async function PATCH(
     .update({
       outcome,
       result_r: resultR,
-      pnl,
       mae_pips: maePips,
       notes,
       post_image_path: nextPostImagePath,

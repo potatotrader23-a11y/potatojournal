@@ -104,7 +104,6 @@ type SavedTrade = {
   lotSize: number | null;
   exitPrice: number | null;
   resultR: number;
-  pnl: number;
   maePips: number | null;
   notes: string;
   imageUrl: string | null;
@@ -388,7 +387,6 @@ function Overview({
   const completed = trades.filter((trade) => trade.outcome !== null);
   const wins = completed.filter((trade) => trade.outcome === 'Win').length;
   const liveNetR = completed.reduce((sum, trade) => sum + trade.resultR, 0);
-  const liveNetPnl = completed.reduce((sum, trade) => sum + trade.pnl, 0);
   const backtestNetR = backtests.reduce(
     (sum, backtest) => sum + backtest.resultR,
     0,
@@ -425,7 +423,7 @@ function Overview({
           value={
             loading ? '…' : `${liveNetR > 0 ? '+' : ''}${liveNetR.toFixed(1)}R`
           }
-          detail={`${money(liveNetPnl)} net P&L`}
+          detail={`${completed.length} completed live trade${completed.length === 1 ? '' : 's'}`}
           positive={liveNetR > 0}
           icon={liveNetR < 0 ? TrendingDown : TrendingUp}
         />
@@ -1819,7 +1817,6 @@ function Journal({
   const completed = trades.filter((item) => item.outcome !== null);
   const wins = completed.filter((item) => item.outcome === 'Win').length;
   const netR = completed.reduce((total, item) => total + item.resultR, 0);
-  const netPnl = completed.reduce((total, item) => total + item.pnl, 0);
   const calendarTrades: SavedBacktest[] = completed.map((item) => ({
     id: item.id,
     instrument: 'GBPUSD',
@@ -1914,11 +1911,10 @@ function Journal({
               icon={TrendingUp}
             />
             <Metric
-              label="Net P&L"
-              value={loading ? '…' : completed.length ? money(netPnl) : '—'}
-              detail="Across completed live trades"
-              positive={netPnl > 0}
-              icon={netPnl < 0 ? TrendingDown : BarChart3}
+              label="Open trades"
+              value={loading ? '…' : String(trades.length - completed.length)}
+              detail="Waiting for a final result"
+              icon={Activity}
             />
           </div>
         </>
@@ -2077,7 +2073,7 @@ function JournalDayDialog({
                   <span className="text-xs text-muted-foreground">
                     {trade.resultR > 0 ? '+' : ''}
                     {trade.resultR}R
-                    {trade.maePips === null
+                    {trade.outcome === 'Loss' || trade.maePips === null
                       ? ''
                       : ` · MAE ${trade.maePips} pips`}
                   </span>
@@ -2236,7 +2232,7 @@ function LiveTradeHistory({
                           </Button>
                         </div>
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                         <TradeValue
                           label="RR"
                           value={
@@ -2247,18 +2243,15 @@ function LiveTradeHistory({
                           tone={trade.outcome ? trade.resultR : undefined}
                         />
                         <TradeValue
-                          label="P&L"
-                          value={trade.outcome ? money(trade.pnl) : 'Pending'}
-                          tone={trade.outcome ? trade.pnl : undefined}
-                        />
-                        <TradeValue
                           label="MAE"
                           value={
-                            trade.outcome
-                              ? trade.maePips === null
-                                ? '—'
-                                : `${trade.maePips} pips`
-                              : 'Pending'
+                            trade.outcome === 'Loss'
+                              ? 'Not needed for losses'
+                              : trade.outcome
+                                ? trade.maePips === null
+                                  ? '—'
+                                  : `${trade.maePips} pips`
+                                : 'Pending'
                           }
                         />
                       </div>
@@ -2360,7 +2353,6 @@ function CompleteTradeDialog({
   onSaved: () => Promise<void>;
 }) {
   const [resultR, setResultR] = useState(trade?.resultR.toString() ?? '0');
-  const [pnl, setPnl] = useState(trade?.pnl.toString() ?? '0');
   const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
   const [notes, setNotes] = useState(trade?.notes ?? '');
   const [postImage, setPostImage] = useState<File | null>(null);
@@ -2385,8 +2377,7 @@ function CompleteTradeDialog({
     setError('');
     const payload = new FormData();
     payload.set('resultR', resultR);
-    payload.set('pnl', pnl);
-    payload.set('maePips', maePips);
+    if (outcome !== 'Loss') payload.set('maePips', maePips);
     payload.set('notes', notes);
     if (postImage) payload.set('postImage', postImage);
     const response = await fetch(`/api/trades/${trade.id}`, {
@@ -2413,8 +2404,8 @@ function CompleteTradeDialog({
             {trade?.outcome ? 'Edit trade result' : 'Complete trade'}
           </DialogTitle>
           <DialogDescription>
-            Add the final RR, P&amp;L, MAE, and post-trade screenshot. Outcome
-            is calculated automatically from RR.
+            Add the final RR, optional post-trade screenshot, and notes. MAE is
+            only requested for breakeven or winning trades.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
@@ -2442,31 +2433,21 @@ function CompleteTradeDialog({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <SignedRField value={resultR} onChange={setResultR} />
-            <Field label="P&L (USD)">
-              <Input
-                required
-                type="text"
-                inputMode="decimal"
-                value={pnl}
-                onChange={(event) => {
-                  const next = event.target.value.replace(',', '.');
-                  if (/^-?\d*(?:\.\d*)?$/.test(next)) setPnl(next);
-                }}
-              />
-            </Field>
-            <Field label="MAE (pips)">
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                min="0"
-                max="100000"
-                step="0.1"
-                placeholder="8"
-                value={maePips}
-                onChange={(event) => setMaePips(event.target.value)}
-              />
-            </Field>
+            {outcome !== 'Loss' ? (
+              <Field label="MAE (pips)">
+                <Input
+                  required
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="100000"
+                  step="0.1"
+                  placeholder="8"
+                  value={maePips}
+                  onChange={(event) => setMaePips(event.target.value)}
+                />
+              </Field>
+            ) : null}
           </div>
           <Field label="Post-trade screenshot">
             <label
@@ -2511,7 +2492,14 @@ function CompleteTradeDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !outcome}>
+            <Button
+              type="submit"
+              disabled={
+                saving ||
+                !outcome ||
+                (outcome !== 'Loss' && maePips.trim() === '')
+              }
+            >
               {saving ? 'Saving…' : 'Save result'}
             </Button>
           </DialogFooter>
@@ -2712,10 +2700,6 @@ function Analytics({
     (total, item) => total + item.resultR,
     0,
   );
-  const liveNetPnl = completedTrades.reduce(
-    (total, item) => total + item.pnl,
-    0,
-  );
   const liveStreaks = longestOutcomeStreaks(
     completedTrades.map((item) => item.outcome!),
   );
@@ -2761,13 +2745,6 @@ function Analytics({
                   : '—'
               }
               tone={liveNetR > 0 ? 'win' : liveNetR < 0 ? 'loss' : undefined}
-            />
-            <AnalyticsRow
-              label="Net P&L"
-              value={completedTrades.length ? money(liveNetPnl) : '—'}
-              tone={
-                liveNetPnl > 0 ? 'win' : liveNetPnl < 0 ? 'loss' : undefined
-              }
             />
             <AnalyticsRow
               label="Most wins in a row"
