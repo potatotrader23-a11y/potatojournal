@@ -1739,6 +1739,91 @@ function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
     </article>
   );
 }
+function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
+  const chronological = trades
+    .filter((trade) => trade.outcome !== null)
+    .toSorted(
+      (a, b) =>
+        a.tradeDate.localeCompare(b.tradeDate) ||
+        a.tradeTime.localeCompare(b.tradeTime) ||
+        Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    );
+  const curve = chronological.reduce<number[]>(
+    (points, trade) => [...points, points.at(-1)! + trade.resultR],
+    [0],
+  );
+  const net = curve.at(-1) ?? 0;
+  let peak = 0;
+  let maxDrawdown = 0;
+  curve.forEach((point) => {
+    peak = Math.max(peak, point);
+    maxDrawdown = Math.max(maxDrawdown, peak - point);
+  });
+  return (
+    <article className="surface overflow-hidden p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold">Live equity curve</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Cumulative RR from completed live trades, ordered by London date and
+            time.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge
+            variant="outline"
+            className={net >= 0 ? 'text-emerald-500' : 'text-destructive'}
+          >
+            Net {net > 0 ? '+' : ''}
+            {net.toFixed(1)}R
+          </Badge>
+          <Badge variant="outline">Peak {peak.toFixed(1)}R</Badge>
+          <Badge variant="outline" className="text-destructive">
+            Max DD {maxDrawdown.toFixed(1)}R
+          </Badge>
+        </div>
+      </div>
+      <div className="mt-5 h-48 sm:h-56">
+        <svg
+          viewBox="0 0 760 230"
+          className="h-full w-full"
+          preserveAspectRatio="none"
+          aria-label={`Live equity curve ending at ${net.toFixed(1)}R`}
+        >
+          <title>Live cumulative RR equity curve</title>
+          {[35, 85, 135, 185].map((y) => (
+            <line
+              key={y}
+              x1="0"
+              y1={y}
+              x2="760"
+              y2={y}
+              stroke="currentColor"
+              className="text-border"
+              strokeDasharray="4 6"
+            />
+          ))}
+          <polyline
+            points={seriesPoints(curve)}
+            fill="none"
+            stroke="var(--primary)"
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+      <div className="flex justify-between text-[9px] text-muted-foreground">
+        <span>0R start</span>
+        <span>
+          {chronological.length
+            ? `${chronological.length} completed trade${chronological.length === 1 ? '' : 's'}`
+            : 'Complete a trade to begin'}
+        </span>
+      </div>
+    </article>
+  );
+}
 function BacktestStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="surface p-4">
@@ -1917,6 +2002,7 @@ function Journal({
               icon={Activity}
             />
           </div>
+          <LiveEquityCurve trades={trades} />
         </>
       ) : null}
       {journalTab === 'trades' ? (
