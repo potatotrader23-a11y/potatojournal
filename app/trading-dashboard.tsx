@@ -861,6 +861,9 @@ function Backtesting({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SavedBacktest | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [deleteAllError, setDeleteAllError] = useState('');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<
     string | null
   >(null);
@@ -951,6 +954,22 @@ function Backtesting({
       setDeleteTarget(null);
     } catch {
       setSaveState('error');
+    }
+  };
+  const deleteAllBacktests = async () => {
+    setDeletingAll(true);
+    setDeleteAllError('');
+    try {
+      const response = await fetch('/api/backtests', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Unable to delete backtests');
+      resetEditor();
+      setBacktests([]);
+      setSelectedCalendarDate(null);
+      setDeleteAllOpen(false);
+    } catch {
+      setDeleteAllError('Could not delete the backtest history. Try again.');
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -1196,7 +1215,24 @@ function Backtesting({
                 Your saved GBPUSD results and chart screenshots.
               </p>
             </div>
-            <Badge variant="outline">{filteredBacktests.length} entries</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline">
+                {filteredBacktests.length} entries
+              </Badge>
+              {backtests.length ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    setDeleteAllError('');
+                    setDeleteAllOpen(true);
+                  }}
+                >
+                  <Trash2 /> Delete all
+                </Button>
+              ) : null}
+            </div>
           </div>
           {loading ? (
             <div className="flex min-h-28 items-center justify-center">
@@ -1300,6 +1336,39 @@ function Backtesting({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={deleteBacktest}>
               Delete backtest
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!deletingAll) setDeleteAllOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all backtest history?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes all {backtests.length} saved backtests
+              and their chart screenshots, including entries outside the
+              selected year. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteAllError ? (
+            <p className="text-sm text-destructive">{deleteAllError}</p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAll}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletingAll}
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteAllBacktests();
+              }}
+            >
+              {deletingAll ? 'Deleting…' : 'Delete everything'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

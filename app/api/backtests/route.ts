@@ -119,3 +119,45 @@ export async function POST(request: Request) {
   }
   return Response.json({ id, status: 'saved' });
 }
+
+export async function DELETE() {
+  if (!hasSupabaseEnvironment()) {
+    return Response.json(
+      { error: 'Supabase is not configured' },
+      { status: 503 },
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { data, error: findError } = await supabase
+    .from('backtests')
+    .select('image_path')
+    .eq('user_id', user.id);
+  if (findError) {
+    return Response.json({ error: findError.message }, { status: 500 });
+  }
+
+  const { error: deleteError, count } = await supabase
+    .from('backtests')
+    .delete({ count: 'exact' })
+    .eq('user_id', user.id);
+  if (deleteError) {
+    return Response.json({ error: deleteError.message }, { status: 500 });
+  }
+
+  const imagePaths = (data ?? [])
+    .map((item) => item.image_path)
+    .filter((path): path is string => Boolean(path));
+  for (let index = 0; index < imagePaths.length; index += 100) {
+    await supabase.storage
+      .from('backtest-images')
+      .remove(imagePaths.slice(index, index + 100));
+  }
+
+  return Response.json({ status: 'deleted', count: count ?? 0 });
+}
