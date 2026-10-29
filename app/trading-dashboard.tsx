@@ -2222,87 +2222,134 @@ function JournalDayDialog({
   trades: SavedTrade[];
   onOpenChange: (open: boolean) => void;
 }) {
+  const [imagePreview, setImagePreview] = useState<{
+    url: string;
+    label: string;
+  } | null>(null);
   return (
-    <Dialog open={Boolean(date)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>
-            {date ? formatBacktestDate(date) : 'Trade screenshots'}
-          </DialogTitle>
-          <DialogDescription>
-            Entry and post-trade charts saved for this trading day.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-5">
-          {trades.map((trade) => {
-            const screenshots = [
-              { label: 'Entry', url: trade.imageUrl },
-              { label: 'Post-trade', url: trade.postImageUrl },
-            ].filter((item): item is { label: string; url: string } =>
-              Boolean(item.url),
-            );
-            return (
-              <article
-                key={trade.id}
-                className="overflow-hidden rounded-xl border border-border bg-card"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold">GBPUSD</span>
-                    <Badge variant="outline">{trade.tradeTime}</Badge>
-                    <Badge
-                      variant="outline"
-                      className={
-                        trade.outcome === 'Win'
-                          ? 'text-emerald-500'
-                          : trade.outcome === 'Loss'
-                            ? 'text-destructive'
-                            : ''
-                      }
+    <>
+      <Dialog
+        open={Boolean(date)}
+        onOpenChange={(open) => {
+          if (!open) setImagePreview(null);
+          onOpenChange(open);
+        }}
+      >
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
+              {date ? formatBacktestDate(date) : 'Trade screenshots'}
+            </DialogTitle>
+            <DialogDescription>
+              Entry and post-trade charts saved for this trading day.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
+            {trades.map((trade) => {
+              const screenshots = [
+                { label: 'Entry', url: trade.imageUrl },
+                { label: 'Post-trade', url: trade.postImageUrl },
+              ].filter((item): item is { label: string; url: string } =>
+                Boolean(item.url),
+              );
+              return (
+                <article
+                  key={trade.id}
+                  className="overflow-hidden rounded-xl border border-border bg-card"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">GBPUSD</span>
+                      <Badge variant="outline">{trade.tradeTime}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={
+                          trade.outcome === 'Win'
+                            ? 'text-emerald-500'
+                            : trade.outcome === 'Loss'
+                              ? 'text-destructive'
+                              : ''
+                        }
+                      >
+                        {trade.outcome ?? 'Open'}
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {trade.resultR > 0 ? '+' : ''}
+                      {trade.resultR}R
+                      {trade.outcome === 'Loss' || trade.maePips === null
+                        ? ''
+                        : ` · MAE ${trade.maePips} pips`}
+                    </span>
+                  </div>
+                  {screenshots.length ? (
+                    <div
+                      className={`grid gap-3 p-3 ${screenshots.length > 1 ? 'md:grid-cols-2' : ''}`}
                     >
-                      {trade.outcome ?? 'Open'}
-                    </Badge>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {trade.resultR > 0 ? '+' : ''}
-                    {trade.resultR}R
-                    {trade.outcome === 'Loss' || trade.maePips === null
-                      ? ''
-                      : ` · MAE ${trade.maePips} pips`}
-                  </span>
-                </div>
-                {screenshots.length ? (
-                  <div
-                    className={`grid gap-3 p-3 ${screenshots.length > 1 ? 'md:grid-cols-2' : ''}`}
-                  >
-                    {screenshots.map((screenshot) => (
-                      <figure key={screenshot.label}>
-                        <div className="relative aspect-video overflow-hidden rounded-lg bg-muted">
-                          <Image
-                            src={screenshot.url}
-                            alt={`${screenshot.label} GBPUSD chart from ${date ? formatBacktestDate(date) : 'trade day'}`}
-                            fill
-                            sizes="(max-width: 768px) 90vw, 420px"
-                            className="object-contain"
-                          />
-                        </div>
-                        <figcaption className="mt-2 text-center text-xs font-medium text-muted-foreground">
-                          {screenshot.label} screenshot
-                        </figcaption>
-                      </figure>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="p-6 text-center text-xs text-muted-foreground">
-                    No screenshot was saved for this trade.
-                  </p>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </DialogContent>
-    </Dialog>
+                      {screenshots.map((screenshot) => {
+                        const label = `${screenshot.label} GBPUSD chart from ${date ? formatBacktestDate(date) : 'trade day'}`;
+                        return (
+                          <figure key={screenshot.label}>
+                            <button
+                              type="button"
+                              aria-label={`View full ${label}`}
+                              className="relative block aspect-video w-full overflow-hidden rounded-lg bg-muted"
+                              onClick={() =>
+                                setImagePreview({
+                                  url: screenshot.url,
+                                  label,
+                                })
+                              }
+                            >
+                              <Image
+                                src={screenshot.url}
+                                alt={label}
+                                fill
+                                sizes="(max-width: 768px) 90vw, 420px"
+                                className="object-contain transition duration-200 hover:scale-[1.02]"
+                              />
+                            </button>
+                            <figcaption className="mt-2 text-center text-xs font-medium text-muted-foreground">
+                              {screenshot.label} screenshot
+                            </figcaption>
+                          </figure>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="p-6 text-center text-xs text-muted-foreground">
+                      No screenshot was saved for this trade.
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(imagePreview)}
+        onOpenChange={(open) => !open && setImagePreview(null)}
+      >
+        <DialogContent className="max-h-[92vh] overflow-hidden p-3 sm:max-w-5xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Trade screenshot</DialogTitle>
+            <DialogDescription>{imagePreview?.label}</DialogDescription>
+          </DialogHeader>
+          {imagePreview ? (
+            <div className="relative min-h-52 w-full overflow-hidden rounded-xl bg-muted sm:min-h-[70vh]">
+              <Image
+                src={imagePreview.url}
+                alt={imagePreview.label}
+                fill
+                sizes="(max-width: 1024px) 95vw, 960px"
+                className="object-contain"
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
