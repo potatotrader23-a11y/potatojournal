@@ -864,6 +864,10 @@ function Backtesting({
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [deleteAllError, setDeleteAllError] = useState('');
+  const [historyImagePreview, setHistoryImagePreview] = useState<{
+    url: string;
+    label: string;
+  } | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<
     string | null
   >(null);
@@ -1255,15 +1259,27 @@ function Backtesting({
                   key={item.id}
                   className="overflow-hidden rounded-xl border border-border bg-card"
                 >
-                  {item.imageUrl && (
-                    <Image
-                      src={item.imageUrl}
-                      alt="GBPUSD backtest chart"
-                      width={720}
-                      height={405}
-                      className="aspect-video w-full object-cover"
-                    />
-                  )}
+                  {item.imageUrl ? (
+                    <button
+                      type="button"
+                      className="relative block aspect-video w-full overflow-hidden bg-muted"
+                      aria-label={`View full backtest chart from ${formatBacktestDate(item.backtestDate)}`}
+                      onClick={() =>
+                        setHistoryImagePreview({
+                          url: item.imageUrl!,
+                          label: `GBPUSD backtest chart from ${formatBacktestDate(item.backtestDate)}`,
+                        })
+                      }
+                    >
+                      <Image
+                        src={item.imageUrl}
+                        alt="GBPUSD backtest chart"
+                        fill
+                        sizes="(max-width: 640px) 100vw, 360px"
+                        className="object-cover transition duration-200 hover:scale-[1.02]"
+                      />
+                    </button>
+                  ) : null}
                   <div className="p-4">
                     <div className="flex items-center justify-between gap-2">
                       <p className="font-semibold">GBPUSD</p>
@@ -1320,6 +1336,28 @@ function Backtesting({
         )}
         onOpenChange={(open) => !open && setSelectedCalendarDate(null)}
       />
+      <Dialog
+        open={Boolean(historyImagePreview)}
+        onOpenChange={(open) => !open && setHistoryImagePreview(null)}
+      >
+        <DialogContent className="max-h-[92vh] overflow-hidden p-3 sm:max-w-5xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Backtest screenshot</DialogTitle>
+            <DialogDescription>{historyImagePreview?.label}</DialogDescription>
+          </DialogHeader>
+          {historyImagePreview ? (
+            <div className="relative min-h-52 w-full overflow-hidden rounded-xl bg-muted sm:min-h-[70vh]">
+              <Image
+                src={historyImagePreview.url}
+                alt={historyImagePreview.label}
+                fill
+                sizes="(max-width: 1024px) 95vw, 960px"
+                className="object-contain"
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
