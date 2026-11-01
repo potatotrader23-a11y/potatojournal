@@ -67,7 +67,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
-type View = 'overview' | 'backtesting' | 'journal' | 'analytics';
+type View = 'overview' | 'backtesting' | 'journal';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
   id: string;
@@ -157,7 +157,6 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'journal', label: 'Journal', icon: BookOpenCheck },
   { id: 'backtesting', label: 'Backtesting', icon: FlaskConical },
-  { id: 'analytics', label: 'Performance', icon: BarChart3 },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -303,9 +302,6 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               loading={tradesLoading}
               onChanged={refreshLiveJournal}
             />
-          )}{' '}
-          {view === 'analytics' && (
-            <Analytics backtests={backtests} trades={trades} />
           )}
         </div>
       </section>
@@ -984,9 +980,22 @@ function Backtesting({
     isInYear(item.backtestDate, backtestYear),
   );
   const winCount = filteredBacktests.filter((item) => item.resultR > 0).length;
+  const lossCount = filteredBacktests.filter((item) => item.resultR < 0).length;
+  const breakevenCount = filteredBacktests.length - winCount - lossCount;
   const netR = filteredBacktests.reduce(
     (total, item) => total + item.resultR,
     0,
+  );
+  const bestResult = filteredBacktests.length
+    ? Math.max(...filteredBacktests.map((item) => item.resultR))
+    : null;
+  const worstResult = filteredBacktests.length
+    ? Math.min(...filteredBacktests.map((item) => item.resultR))
+    : null;
+  const backtestStreaks = longestOutcomeStreaks(
+    filteredBacktests.map((item) =>
+      item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+    ),
   );
   const averageR = filteredBacktests.length
     ? netR / filteredBacktests.length
@@ -1051,7 +1060,59 @@ function Backtesting({
         />
       )}
       {backtestTab === 'analytics' && (
-        <BacktestEquityCurve backtests={filteredBacktests} />
+        <div className="space-y-4">
+          <BacktestEquityCurve backtests={filteredBacktests} />
+          <OutcomeAnalytics
+            title="Backtest outcomes"
+            wins={winCount}
+            losses={lossCount}
+            breakeven={breakevenCount}
+            rows={[
+              {
+                label: 'Win rate',
+                value: percentage(winCount),
+              },
+              {
+                label: 'Net RR',
+                value: filteredBacktests.length
+                  ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                  : '—',
+                tone: netR > 0 ? 'win' : netR < 0 ? 'loss' : undefined,
+              },
+              {
+                label: 'Best result',
+                value:
+                  bestResult === null
+                    ? '—'
+                    : `${bestResult > 0 ? '+' : ''}${bestResult}R`,
+                tone: bestResult !== null && bestResult > 0 ? 'win' : undefined,
+              },
+              {
+                label: 'Worst result',
+                value:
+                  worstResult === null
+                    ? '—'
+                    : `${worstResult > 0 ? '+' : ''}${worstResult}R`,
+                tone:
+                  worstResult !== null && worstResult < 0 ? 'loss' : undefined,
+              },
+              {
+                label: 'Most wins in a row',
+                value: filteredBacktests.length
+                  ? String(backtestStreaks.wins)
+                  : '—',
+                tone: backtestStreaks.wins ? 'win' : undefined,
+              },
+              {
+                label: 'Most losses in a row',
+                value: filteredBacktests.length
+                  ? String(backtestStreaks.losses)
+                  : '—',
+                tone: backtestStreaks.losses ? 'loss' : undefined,
+              },
+            ]}
+          />
+        </div>
       )}
       {backtestTab === 'log' && (
         <form
@@ -1997,6 +2058,7 @@ function Journal({
   onChanged: () => Promise<void>;
 }) {
   const [journalTab, setJournalTab] = useState<JournalTab>('trades');
+  const [journalYear, setJournalYear] = useState('all');
   const [journalDate, setJournalDate] = useState(londonToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     londonToday().slice(0, 7),
@@ -2006,17 +2068,30 @@ function Journal({
   const [completeTarget, setCompleteTarget] = useState<SavedTrade | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SavedTrade | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const completed = trades.filter((item) => item.outcome !== null);
+  const analyticsYears = availableYears(trades.map((item) => item.tradeDate));
+  const filteredTrades = trades.filter((item) =>
+    isInYear(item.tradeDate, journalYear),
+  );
+  const completed = filteredTrades.filter((item) => item.outcome !== null);
   const wins = completed.filter((item) => item.outcome === 'Win').length;
+  const losses = completed.filter((item) => item.outcome === 'Loss').length;
+  const breakeven = completed.filter(
+    (item) => item.outcome === 'Breakeven',
+  ).length;
   const netR = completed.reduce((total, item) => total + item.resultR, 0);
-  const calendarTrades: SavedBacktest[] = completed.map((item) => ({
-    id: item.id,
-    instrument: 'GBPUSD',
-    resultR: item.resultR,
-    backtestDate: item.tradeDate,
-    imageUrl: item.imageUrl,
-    createdAt: item.createdAt,
-  }));
+  const liveStreaks = longestOutcomeStreaks(
+    completed.map((item) => item.outcome!),
+  );
+  const calendarTrades: SavedBacktest[] = trades
+    .filter((item) => item.outcome !== null)
+    .map((item) => ({
+      id: item.id,
+      instrument: 'GBPUSD',
+      resultR: item.resultR,
+      backtestDate: item.tradeDate,
+      imageUrl: item.imageUrl,
+      createdAt: item.createdAt,
+    }));
   const openTrade = (date = londonToday()) => {
     setJournalDate(date);
     setDialogOpen(true);
@@ -2050,6 +2125,13 @@ function Journal({
         tradeCount={trades.length}
         onChange={setJournalTab}
       />
+      {journalTab === 'analytics' ? (
+        <YearFilter
+          value={journalYear}
+          years={analyticsYears}
+          onChange={setJournalYear}
+        />
+      ) : null}
       {journalTab === 'calendar' ? (
         <BacktestCalendar
           backtests={calendarTrades}
@@ -2072,7 +2154,7 @@ function Journal({
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
               label="Live trades"
-              value={loading ? '…' : `${trades.length}`}
+              value={loading ? '…' : `${filteredTrades.length}`}
               detail="GBPUSD · London · 15m"
               icon={BookOpenCheck}
             />
@@ -2104,12 +2186,48 @@ function Journal({
             />
             <Metric
               label="Open trades"
-              value={loading ? '…' : String(trades.length - completed.length)}
+              value={
+                loading ? '…' : String(filteredTrades.length - completed.length)
+              }
               detail="Waiting for a final result"
               icon={Activity}
             />
           </div>
-          <LiveEquityCurve trades={trades} />
+          <div className="space-y-4">
+            <LiveEquityCurve trades={filteredTrades} />
+            <OutcomeAnalytics
+              title="Live trade outcomes"
+              wins={wins}
+              losses={losses}
+              breakeven={breakeven}
+              rows={[
+                {
+                  label: 'Win rate',
+                  value: completed.length
+                    ? `${Math.round((wins / completed.length) * 100)}%`
+                    : '—',
+                },
+                {
+                  label: 'Net RR',
+                  value: completed.length
+                    ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
+                    : '—',
+                  tone: netR > 0 ? 'win' : netR < 0 ? 'loss' : undefined,
+                },
+                {
+                  label: 'Most wins in a row',
+                  value: completed.length ? String(liveStreaks.wins) : '—',
+                  tone: liveStreaks.wins ? 'win' : undefined,
+                },
+                {
+                  label: 'Most losses in a row',
+                  value: completed.length ? String(liveStreaks.losses) : '—',
+                  tone: liveStreaks.losses ? 'loss' : undefined,
+                },
+                { label: 'Market', value: 'GBPUSD · London · 15m' },
+              ]}
+            />
+          </div>
         </>
       ) : null}
       {journalTab === 'trades' ? (
@@ -2893,168 +3011,46 @@ function TradeDialog({
     </Dialog>
   );
 }
-function Analytics({
-  backtests,
-  trades,
+type OutcomeAnalyticsRow = {
+  label: string;
+  value: string;
+  tone?: 'win' | 'loss';
+};
+
+function OutcomeAnalytics({
+  title,
+  wins,
+  losses,
+  breakeven,
+  rows,
 }: {
-  backtests: SavedBacktest[];
-  trades: SavedTrade[];
+  title: string;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  rows: OutcomeAnalyticsRow[];
 }) {
-  const [performanceYear, setPerformanceYear] = useState('all');
-  const performanceYears = availableYears([
-    ...backtests.map((item) => item.backtestDate),
-    ...trades.map((item) => item.tradeDate),
-  ]);
-  const filteredBacktests = backtests.filter((item) =>
-    isInYear(item.backtestDate, performanceYear),
-  );
-  const filteredTrades = trades.filter((item) =>
-    isInYear(item.tradeDate, performanceYear),
-  );
-  const wins = filteredBacktests.filter((item) => item.resultR > 0).length;
-  const losses = filteredBacktests.filter((item) => item.resultR < 0).length;
-  const breakeven = filteredBacktests.length - wins - losses;
-  const netR = filteredBacktests.reduce(
-    (total, item) => total + item.resultR,
-    0,
-  );
-  const best = filteredBacktests.length
-    ? Math.max(...filteredBacktests.map((item) => item.resultR))
-    : null;
-  const worst = filteredBacktests.length
-    ? Math.min(...filteredBacktests.map((item) => item.resultR))
-    : null;
-  const completedTrades = filteredTrades.filter(
-    (item) => item.outcome !== null,
-  );
-  const liveWins = completedTrades.filter(
-    (item) => item.outcome === 'Win',
-  ).length;
-  const liveLosses = completedTrades.filter(
-    (item) => item.outcome === 'Loss',
-  ).length;
-  const liveBreakeven = completedTrades.filter(
-    (item) => item.outcome === 'Breakeven',
-  ).length;
-  const liveNetR = completedTrades.reduce(
-    (total, item) => total + item.resultR,
-    0,
-  );
-  const liveStreaks = longestOutcomeStreaks(
-    completedTrades.map((item) => item.outcome!),
-  );
-  const backtestStreaks = longestOutcomeStreaks(
-    filteredBacktests.map((item) =>
-      item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
-    ),
-  );
   return (
-    <>
-      <PageHeading
-        eyebrow="Backtest vs live"
-        title="Performance"
-        description="Compare your researched edge with your real GBPUSD trading results."
-      />
-      <YearFilter
-        value={performanceYear}
-        years={performanceYears}
-        onChange={setPerformanceYear}
-      />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <article className="surface p-5">
-          <h2 className="text-sm font-semibold">Live trade outcomes</h2>
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            <OutcomeStat label="Wins" value={liveWins} tone="win" />
-            <OutcomeStat label="Losses" value={liveLosses} tone="loss" />
-            <OutcomeStat label="Breakeven" value={liveBreakeven} />
-          </div>
-          <div className="mt-5 space-y-3 border-t border-border pt-5">
-            <AnalyticsRow
-              label="Win rate"
-              value={
-                completedTrades.length
-                  ? `${Math.round((liveWins / completedTrades.length) * 100)}%`
-                  : '—'
-              }
-            />
-            <AnalyticsRow
-              label="Net RR"
-              value={
-                completedTrades.length
-                  ? `${liveNetR > 0 ? '+' : ''}${liveNetR.toFixed(1)}R`
-                  : '—'
-              }
-              tone={liveNetR > 0 ? 'win' : liveNetR < 0 ? 'loss' : undefined}
-            />
-            <AnalyticsRow
-              label="Most wins in a row"
-              value={completedTrades.length ? String(liveStreaks.wins) : '—'}
-              tone={liveStreaks.wins ? 'win' : undefined}
-            />
-            <AnalyticsRow
-              label="Most losses in a row"
-              value={completedTrades.length ? String(liveStreaks.losses) : '—'}
-              tone={liveStreaks.losses ? 'loss' : undefined}
-            />
-            <AnalyticsRow label="Market" value="GBPUSD · London · 15m" />
-          </div>
-        </article>
-        <article className="surface p-5">
-          <h2 className="text-sm font-semibold">Backtest outcomes</h2>
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            <OutcomeStat label="Wins" value={wins} tone="win" />
-            <OutcomeStat label="Losses" value={losses} tone="loss" />
-            <OutcomeStat label="Breakeven" value={breakeven} />
-          </div>
-          <div className="mt-5 space-y-3 border-t border-border pt-5">
-            <AnalyticsRow
-              label="Win rate"
-              value={
-                filteredBacktests.length
-                  ? `${Math.round((wins / filteredBacktests.length) * 100)}%`
-                  : '—'
-              }
-            />
-            <AnalyticsRow
-              label="Net RR"
-              value={
-                filteredBacktests.length
-                  ? `${netR > 0 ? '+' : ''}${netR.toFixed(1)}R`
-                  : '—'
-              }
-              tone={netR > 0 ? 'win' : netR < 0 ? 'loss' : undefined}
-            />
-            <AnalyticsRow
-              label="Best result"
-              value={best === null ? '—' : `${best > 0 ? '+' : ''}${best}R`}
-              tone={best !== null && best > 0 ? 'win' : undefined}
-            />
-            <AnalyticsRow
-              label="Worst result"
-              value={worst === null ? '—' : `${worst > 0 ? '+' : ''}${worst}R`}
-              tone={worst !== null && worst < 0 ? 'loss' : undefined}
-            />
-            <AnalyticsRow
-              label="Most wins in a row"
-              value={
-                filteredBacktests.length ? String(backtestStreaks.wins) : '—'
-              }
-              tone={backtestStreaks.wins ? 'win' : undefined}
-            />
-            <AnalyticsRow
-              label="Most losses in a row"
-              value={
-                filteredBacktests.length ? String(backtestStreaks.losses) : '—'
-              }
-              tone={backtestStreaks.losses ? 'loss' : undefined}
-            />
-          </div>
-        </article>
+    <article className="surface p-5">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        <OutcomeStat label="Wins" value={wins} tone="win" />
+        <OutcomeStat label="Losses" value={losses} tone="loss" />
+        <OutcomeStat label="Breakeven" value={breakeven} />
       </div>
-    </>
+      <div className="mt-5 grid gap-x-8 gap-y-3 border-t border-border pt-5 sm:grid-cols-2">
+        {rows.map((row) => (
+          <AnalyticsRow
+            key={row.label}
+            label={row.label}
+            value={row.value}
+            tone={row.tone}
+          />
+        ))}
+      </div>
+    </article>
   );
 }
-
 function longestOutcomeStreaks(outcomes: Array<'Win' | 'Loss' | 'Breakeven'>) {
   let currentOutcome: 'Win' | 'Loss' | 'Breakeven' | null = null;
   let currentLength = 0;
