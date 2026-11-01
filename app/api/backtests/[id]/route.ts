@@ -53,6 +53,13 @@ export async function PATCH(
   const backtestDate = cleanBacktestDate(formData.get('backtestDate'));
   if (!backtestDate)
     return Response.json({ error: 'Invalid backtest date' }, { status: 400 });
+  const resultR = cleanResultR(formData.get('resultR'));
+  if (resultR === null) {
+    return Response.json(
+      { error: 'Result must be either -1R or +2R' },
+      { status: 400 },
+    );
+  }
 
   let nextImagePath = context.backtest.image_path as string | null;
   if (formData.get('removeImage') === 'true') nextImagePath = null;
@@ -71,7 +78,7 @@ export async function PATCH(
     .from('backtests')
     .update({
       variables: cleanBacktestVariables(variables),
-      results: { resultR: cleanResultR(formData.get('resultR')) },
+      results: { resultR },
       backtest_date: backtestDate,
       image_path: nextImagePath,
     })

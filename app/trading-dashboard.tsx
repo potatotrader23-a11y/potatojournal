@@ -1,6 +1,6 @@
 'use client';
 
-import { type SyntheticEvent, useEffect, useState } from 'react';
+import { type SyntheticEvent, useEffect, useId, useState } from 'react';
 import Image from 'next/image';
 import {
   Activity,
@@ -282,27 +282,29 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
           </div>
         </header>
         <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-7 sm:py-8">
-          {view === 'overview' && (
-            <Overview
-              backtests={backtests}
-              trades={trades}
-              loading={backtestsLoading || tradesLoading}
-            />
-          )}
-          {view === 'backtesting' && (
-            <Backtesting
-              backtests={backtests}
-              setBacktests={setBacktests}
-              loading={backtestsLoading}
-            />
-          )}{' '}
-          {view === 'journal' && (
-            <Journal
-              trades={trades}
-              loading={tradesLoading}
-              onChanged={refreshLiveJournal}
-            />
-          )}
+          <div key={view} className="premium-enter">
+            {view === 'overview' && (
+              <Overview
+                backtests={backtests}
+                trades={trades}
+                loading={backtestsLoading || tradesLoading}
+              />
+            )}
+            {view === 'backtesting' && (
+              <Backtesting
+                backtests={backtests}
+                setBacktests={setBacktests}
+                loading={backtestsLoading}
+              />
+            )}{' '}
+            {view === 'journal' && (
+              <Journal
+                trades={trades}
+                loading={tradesLoading}
+                onChanged={refreshLiveJournal}
+              />
+            )}
+          </div>
         </div>
       </section>
     </main>
@@ -469,15 +471,65 @@ function Metric({
     </article>
   );
 }
-function seriesPoints(values: number[]) {
-  const min = Math.min(...values) - 1,
-    max = Math.max(...values) + 1;
-  return values
-    .map(
-      (v, i) =>
-        `${(i / Math.max(values.length - 1, 1)) * 760},${210 - ((v - min) / (max - min)) * 185}`,
-    )
-    .join(' ');
+function performanceStats(results: number[]) {
+  const net = results.reduce((sum, result) => sum + result, 0);
+  const grossProfit = results.reduce(
+    (sum, result) => sum + Math.max(result, 0),
+    0,
+  );
+  const grossLoss = Math.abs(
+    results.reduce((sum, result) => sum + Math.min(result, 0), 0),
+  );
+  let equity = 0;
+  let peak = 0;
+  let maxDrawdown = 0;
+  results.forEach((result) => {
+    equity += result;
+    peak = Math.max(peak, equity);
+    maxDrawdown = Math.max(maxDrawdown, peak - equity);
+  });
+  return {
+    net,
+    expectancy: results.length ? net / results.length : null,
+    profitFactor:
+      grossLoss > 0
+        ? grossProfit / grossLoss
+        : grossProfit > 0
+          ? Infinity
+          : null,
+    maxDrawdown,
+    recoveryFactor: maxDrawdown > 0 ? net / maxDrawdown : null,
+  };
+}
+
+function formatRatio(value: number | null) {
+  if (value === null) return '—';
+  if (!Number.isFinite(value)) return '∞';
+  return value.toFixed(2);
+}
+
+function bestPerformanceBucket(entries: { label: string; resultR: number }[]) {
+  const buckets = new Map<string, { net: number; trades: number }>();
+  entries.forEach(({ label, resultR }) => {
+    const current = buckets.get(label) ?? { net: 0, trades: 0 };
+    current.net += resultR;
+    current.trades += 1;
+    buckets.set(label, current);
+  });
+  const best = [...buckets.entries()].toSorted(
+    ([labelA, a], [labelB, b]) =>
+      b.net - a.net || b.trades - a.trades || labelA.localeCompare(labelB),
+  )[0];
+  return best
+    ? `${best[0]} · ${best[1].net > 0 ? '+' : ''}${best[1].net}R`
+    : '—';
+}
+
+function weekdayLabel(date: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 function AccountEquityCurve({ accounts }: { accounts: TradingAccount[] }) {
   const colors = ['var(--primary)', 'var(--secondary)', 'var(--accent)'];
@@ -847,7 +899,7 @@ function Backtesting({
 }) {
   const [backtestTab, setBacktestTab] = useState<BacktestTab>('log');
   const [backtestYear, setBacktestYear] = useState('all');
-  const [resultRInput, setResultRInput] = useState('1');
+  const [resultRInput, setResultRInput] = useState<'-1' | '2'>('2');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     manilaToday().slice(0, 7),
@@ -880,15 +932,6 @@ function Backtesting({
 
   const save = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const parsedResultR = Number(resultRInput);
-    if (
-      !resultRInput.trim() ||
-      resultRInput === '-' ||
-      !Number.isFinite(parsedResultR)
-    ) {
-      setSaveState('error');
-      return;
-    }
     setSaveState('saving');
     try {
       const formData = new FormData();
@@ -918,7 +961,7 @@ function Backtesting({
   };
 
   const resetEditor = (nextDate = manilaToday()) => {
-    setResultRInput('1');
+    setResultRInput('2');
     setBacktestDate(nextDate);
     setImageFile(null);
     setPreviewUrl(null);
@@ -926,7 +969,7 @@ function Backtesting({
     setRemoveExistingImage(false);
   };
   const editBacktest = (item: SavedBacktest) => {
-    setResultRInput(String(item.resultR));
+    setResultRInput(item.resultR > 0 ? '2' : '-1');
     setBacktestDate(item.backtestDate);
     setImageFile(null);
     setPreviewUrl(item.imageUrl);
@@ -981,7 +1024,6 @@ function Backtesting({
   );
   const winCount = filteredBacktests.filter((item) => item.resultR > 0).length;
   const lossCount = filteredBacktests.filter((item) => item.resultR < 0).length;
-  const breakevenCount = filteredBacktests.length - winCount - lossCount;
   const netR = filteredBacktests.reduce(
     (total, item) => total + item.resultR,
     0,
@@ -996,6 +1038,23 @@ function Backtesting({
     filteredBacktests.map((item) =>
       item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
     ),
+  );
+  const chronologicalBacktests = filteredBacktests.toSorted(
+    (a, b) =>
+      a.backtestDate.localeCompare(b.backtestDate) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const backtestPerformance = performanceStats(
+    chronologicalBacktests.map((item) => item.resultR),
+  );
+  const backtestWinRate = filteredBacktests.length
+    ? (winCount / filteredBacktests.length) * 100
+    : null;
+  const bestBacktestDay = bestPerformanceBucket(
+    filteredBacktests.map((item) => ({
+      label: weekdayLabel(item.backtestDate),
+      resultR: item.resultR,
+    })),
   );
   const averageR = filteredBacktests.length
     ? netR / filteredBacktests.length
@@ -1060,13 +1119,12 @@ function Backtesting({
         />
       )}
       {backtestTab === 'analytics' && (
-        <div className="space-y-4">
+        <div className="premium-enter space-y-4">
           <BacktestEquityCurve backtests={filteredBacktests} />
           <OutcomeAnalytics
             title="Backtest outcomes"
             wins={winCount}
             losses={lossCount}
-            breakeven={breakevenCount}
             rows={[
               {
                 label: 'Win rate',
@@ -1110,6 +1168,48 @@ function Backtesting({
                   : '—',
                 tone: backtestStreaks.losses ? 'loss' : undefined,
               },
+              {
+                label: 'Expectancy per entry',
+                value:
+                  backtestPerformance.expectancy === null
+                    ? '—'
+                    : `${backtestPerformance.expectancy >= 0 ? '+' : ''}${backtestPerformance.expectancy.toFixed(2)}R`,
+                tone:
+                  backtestPerformance.expectancy === null
+                    ? undefined
+                    : backtestPerformance.expectancy > 0
+                      ? 'win'
+                      : backtestPerformance.expectancy < 0
+                        ? 'loss'
+                        : undefined,
+              },
+              {
+                label: 'Profit factor',
+                value: formatRatio(backtestPerformance.profitFactor),
+              },
+              {
+                label: 'Edge vs 33.3% breakeven',
+                value:
+                  backtestWinRate === null
+                    ? '—'
+                    : `${backtestWinRate - 33.3 >= 0 ? '+' : ''}${(backtestWinRate - 33.3).toFixed(1)}%`,
+                tone:
+                  backtestWinRate === null
+                    ? undefined
+                    : backtestWinRate > 33.3
+                      ? 'win'
+                      : 'loss',
+              },
+              {
+                label: 'Maximum drawdown',
+                value: `${backtestPerformance.maxDrawdown.toFixed(1)}R`,
+                tone: backtestPerformance.maxDrawdown > 0 ? 'loss' : undefined,
+              },
+              {
+                label: 'Recovery factor',
+                value: formatRatio(backtestPerformance.recoveryFactor),
+              },
+              { label: 'Best weekday', value: bestBacktestDay },
             ]}
           />
         </div>
@@ -1118,7 +1218,7 @@ function Backtesting({
         <form
           id="backtest-form"
           onSubmit={save}
-          className="surface mx-auto max-w-3xl scroll-mt-20 p-5 sm:p-7"
+          className="surface premium-enter mx-auto max-w-3xl scroll-mt-20 p-5 sm:p-7"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -1159,7 +1259,7 @@ function Backtesting({
               </Field>
             </div>
             <div className="border-t border-border pt-5">
-              <SignedRField
+              <BinaryResultField
                 value={resultRInput}
                 onChange={(next) => {
                   setResultRInput(next);
@@ -1170,8 +1270,7 @@ function Backtesting({
                 id="rr-help"
                 className="mt-2 text-[10px] text-muted-foreground"
               >
-                Use 3 for a +3R win, 2 for +2R, 0 for breakeven, or -1 for a 1R
-                loss.
+                Choose the fixed outcome: +2R for a win or -1R for a loss.
               </p>
             </div>
             <div className="border-t border-border pt-5">
@@ -1508,7 +1607,7 @@ function BacktestTabs({
               role="tab"
               aria-selected={active}
               onClick={() => onChange(tab.value)}
-              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition ${active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+              className={`tab-pill flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium ${active ? 'is-active bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
             >
               <Icon className="size-4" />
               {tab.label}
@@ -1840,101 +1939,51 @@ function CalendarLegend({
     </span>
   );
 }
-function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
-  const chronological = [...backtests].sort(
-    (a, b) =>
-      a.backtestDate.localeCompare(b.backtestDate) ||
-      Date.parse(a.createdAt) - Date.parse(b.createdAt),
-  );
-  const curve = chronological.reduce<number[]>(
-    (points, item) => [...points, points.at(-1)! + item.resultR],
+function EquityCurveCard({
+  values,
+  title,
+  description,
+  countLabel,
+}: {
+  values: number[];
+  title: string;
+  description: string;
+  countLabel: string;
+}) {
+  const gradientId = `equity-${useId().replaceAll(':', '')}`;
+  const curve = values.reduce<number[]>(
+    (points, value) => [...points, points.at(-1)! + value],
     [0],
   );
   const net = curve.at(-1) ?? 0;
-  return (
-    <article className="surface overflow-hidden p-5 sm:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-semibold">Backtest equity curve</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Cumulative RR across saved GBPUSD trades.
-          </p>
-        </div>
-        <Badge
-          variant="outline"
-          className={net >= 0 ? 'text-emerald-500' : 'text-destructive'}
-        >
-          {net > 0 ? '+' : ''}
-          {net.toFixed(1)}R
-        </Badge>
-      </div>
-      <div className="mt-5 h-48 sm:h-56">
-        <svg
-          viewBox="0 0 760 230"
-          className="h-full w-full"
-          preserveAspectRatio="none"
-          aria-label={`Backtest equity curve ending at ${net.toFixed(1)}R`}
-        >
-          <title>Backtest cumulative RR equity curve</title>
-          {[35, 85, 135, 185].map((y) => (
-            <line
-              key={y}
-              x1="0"
-              y1={y}
-              x2="760"
-              y2={y}
-              stroke="currentColor"
-              className="text-border"
-              strokeDasharray="4 6"
-            />
-          ))}
-          <polyline
-            points={seriesPoints(curve)}
-            fill="none"
-            stroke="var(--primary)"
-            strokeWidth="3"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-        </svg>
-      </div>
-      <div className="flex justify-between text-[9px] text-muted-foreground">
-        <span>Start</span>
-        <span>
-          {backtests.length ? `Trade ${backtests.length}` : 'No trades yet'}
-        </span>
-      </div>
-    </article>
-  );
-}
-function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
-  const chronological = trades
-    .filter((trade) => trade.outcome !== null)
-    .toSorted(
-      (a, b) =>
-        a.tradeDate.localeCompare(b.tradeDate) ||
-        a.tradeTime.localeCompare(b.tradeTime) ||
-        Date.parse(a.createdAt) - Date.parse(b.createdAt),
-    );
-  const curve = chronological.reduce<number[]>(
-    (points, trade) => [...points, points.at(-1)! + trade.resultR],
-    [0],
-  );
-  const net = curve.at(-1) ?? 0;
+  const min = Math.min(...curve, 0) - 1;
+  const max = Math.max(...curve, 0) + 1;
+  const range = Math.max(max - min, 1);
+  const yFor = (value: number) => 210 - ((value - min) / range) * 185;
+  const points = curve
+    .map(
+      (value, index) =>
+        `${(index / Math.max(curve.length - 1, 1)) * 760},${yFor(value)}`,
+    )
+    .join(' ');
+  const areaPoints = `0,210 ${points} 760,210`;
   let peak = 0;
   let maxDrawdown = 0;
   curve.forEach((point) => {
     peak = Math.max(peak, point);
     maxDrawdown = Math.max(maxDrawdown, peak - point);
   });
+
   return (
-    <article className="surface overflow-hidden p-5 sm:p-6">
+    <article className="surface equity-card overflow-hidden p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold">Live equity curve</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Cumulative RR from completed live trades, ordered by London date and
-            time.
+          <p className="mb-2 text-[9px] font-semibold uppercase tracking-[.18em] text-primary">
+            Growth profile
+          </p>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+            {description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1951,15 +2000,38 @@ function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
           </Badge>
         </div>
       </div>
-      <div className="mt-5 h-48 sm:h-56">
+      <div className="relative mt-5 h-56 sm:h-72">
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 flex flex-col justify-between py-2 text-[9px] text-muted-foreground">
+          <span>{max.toFixed(1)}R</span>
+          <span>{min.toFixed(1)}R</span>
+        </div>
         <svg
           viewBox="0 0 760 230"
-          className="h-full w-full"
+          className="h-full w-full overflow-visible pl-8"
           preserveAspectRatio="none"
-          aria-label={`Live equity curve ending at ${net.toFixed(1)}R`}
+          aria-label={`${title} ending at ${net.toFixed(1)}R`}
         >
-          <title>Live cumulative RR equity curve</title>
-          {[35, 85, 135, 185].map((y) => (
+          <title>{title}</title>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--primary)" stopOpacity=".34" />
+              <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+            </linearGradient>
+            <filter
+              id={`${gradientId}-glow`}
+              x="-20%"
+              y="-20%"
+              width="140%"
+              height="140%"
+            >
+              <feGaussianBlur stdDeviation="4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          {[25, 71, 117, 163, 209].map((y) => (
             <line
               key={y}
               x1="0"
@@ -1968,28 +2040,88 @@ function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
               y2={y}
               stroke="currentColor"
               className="text-border"
-              strokeDasharray="4 6"
+              strokeDasharray="3 7"
             />
           ))}
+          <line
+            x1="0"
+            y1={yFor(0)}
+            x2="760"
+            y2={yFor(0)}
+            stroke="var(--muted-foreground)"
+            strokeOpacity=".4"
+            strokeDasharray="8 8"
+          />
+          <polygon points={areaPoints} fill={`url(#${gradientId})`} />
           <polyline
-            points={seriesPoints(curve)}
+            points={points}
             fill="none"
             stroke="var(--primary)"
-            strokeWidth="3"
+            strokeWidth="3.5"
             strokeLinejoin="round"
             strokeLinecap="round"
+            filter={`url(#${gradientId}-glow)`}
+            className="equity-line"
+          />
+          <circle
+            cx="760"
+            cy={yFor(net)}
+            r="5"
+            fill="var(--primary)"
+            stroke="var(--card)"
+            strokeWidth="3"
+            className="equity-endpoint"
           />
         </svg>
       </div>
-      <div className="flex justify-between text-[9px] text-muted-foreground">
-        <span>0R start</span>
-        <span>
-          {chronological.length
-            ? `${chronological.length} completed trade${chronological.length === 1 ? '' : 's'}`
-            : 'Complete a trade to begin'}
-        </span>
+      <div className="mt-2 flex justify-between text-[9px] text-muted-foreground">
+        <span>0R starting point</span>
+        <span>{countLabel}</span>
       </div>
     </article>
+  );
+}
+
+function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
+  const chronological = backtests.toSorted(
+    (a, b) =>
+      a.backtestDate.localeCompare(b.backtestDate) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  return (
+    <EquityCurveCard
+      values={chronological.map((item) => item.resultR)}
+      title="Backtest equity curve"
+      description="Cumulative RR across saved GBPUSD backtests, ordered by test date."
+      countLabel={
+        backtests.length
+          ? `${backtests.length} tested entr${backtests.length === 1 ? 'y' : 'ies'}`
+          : 'No entries yet'
+      }
+    />
+  );
+}
+
+function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
+  const chronological = trades
+    .filter((trade) => trade.outcome !== null)
+    .toSorted(
+      (a, b) =>
+        a.tradeDate.localeCompare(b.tradeDate) ||
+        a.tradeTime.localeCompare(b.tradeTime) ||
+        Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    );
+  return (
+    <EquityCurveCard
+      values={chronological.map((trade) => trade.resultR)}
+      title="Live equity curve"
+      description="Cumulative RR from completed live entries, ordered by London date and time."
+      countLabel={
+        chronological.length
+          ? `${chronological.length} completed entr${chronological.length === 1 ? 'y' : 'ies'}`
+          : 'Complete a trade to begin'
+      }
+    />
   );
 }
 function BacktestStat({ label, value }: { label: string; value: string }) {
@@ -2057,7 +2189,7 @@ function Journal({
   loading: boolean;
   onChanged: () => Promise<void>;
 }) {
-  const [journalTab, setJournalTab] = useState<JournalTab>('trades');
+  const [journalTab, setJournalTab] = useState<JournalTab>('analytics');
   const [journalYear, setJournalYear] = useState('all');
   const [journalDate, setJournalDate] = useState(londonToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
@@ -2075,13 +2207,38 @@ function Journal({
   const completed = filteredTrades.filter((item) => item.outcome !== null);
   const wins = completed.filter((item) => item.outcome === 'Win').length;
   const losses = completed.filter((item) => item.outcome === 'Loss').length;
-  const breakeven = completed.filter(
-    (item) => item.outcome === 'Breakeven',
-  ).length;
   const netR = completed.reduce((total, item) => total + item.resultR, 0);
   const liveStreaks = longestOutcomeStreaks(
     completed.map((item) => item.outcome!),
   );
+  const chronologicalCompleted = completed.toSorted(
+    (a, b) =>
+      a.tradeDate.localeCompare(b.tradeDate) ||
+      a.tradeTime.localeCompare(b.tradeTime) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const livePerformance = performanceStats(
+    chronologicalCompleted.map((item) => item.resultR),
+  );
+  const liveWinRate = completed.length ? (wins / completed.length) * 100 : null;
+  const bestLiveDay = bestPerformanceBucket(
+    completed.map((item) => ({
+      label: weekdayLabel(item.tradeDate),
+      resultR: item.resultR,
+    })),
+  );
+  const bestEntryHour = bestPerformanceBucket(
+    completed.map((item) => ({
+      label: `${item.tradeTime.slice(0, 2)}:00`,
+      resultR: item.resultR,
+    })),
+  );
+  const winningMae = completed
+    .filter((item) => item.outcome === 'Win' && item.maePips !== null)
+    .map((item) => item.maePips!);
+  const averageWinningMae = winningMae.length
+    ? winningMae.reduce((sum, value) => sum + value, 0) / winningMae.length
+    : null;
   const calendarTrades: SavedBacktest[] = trades
     .filter((item) => item.outcome !== null)
     .map((item) => ({
@@ -2193,13 +2350,12 @@ function Journal({
               icon={Activity}
             />
           </div>
-          <div className="space-y-4">
+          <div className="premium-enter space-y-4">
             <LiveEquityCurve trades={filteredTrades} />
             <OutcomeAnalytics
               title="Live trade outcomes"
               wins={wins}
               losses={losses}
-              breakeven={breakeven}
               rows={[
                 {
                   label: 'Win rate',
@@ -2223,6 +2379,56 @@ function Journal({
                   label: 'Most losses in a row',
                   value: completed.length ? String(liveStreaks.losses) : '—',
                   tone: liveStreaks.losses ? 'loss' : undefined,
+                },
+                {
+                  label: 'Expectancy per entry',
+                  value:
+                    livePerformance.expectancy === null
+                      ? '—'
+                      : `${livePerformance.expectancy >= 0 ? '+' : ''}${livePerformance.expectancy.toFixed(2)}R`,
+                  tone:
+                    livePerformance.expectancy === null
+                      ? undefined
+                      : livePerformance.expectancy > 0
+                        ? 'win'
+                        : livePerformance.expectancy < 0
+                          ? 'loss'
+                          : undefined,
+                },
+                {
+                  label: 'Profit factor',
+                  value: formatRatio(livePerformance.profitFactor),
+                },
+                {
+                  label: 'Edge vs 33.3% breakeven',
+                  value:
+                    liveWinRate === null
+                      ? '—'
+                      : `${liveWinRate - 33.3 >= 0 ? '+' : ''}${(liveWinRate - 33.3).toFixed(1)}%`,
+                  tone:
+                    liveWinRate === null
+                      ? undefined
+                      : liveWinRate > 33.3
+                        ? 'win'
+                        : 'loss',
+                },
+                {
+                  label: 'Maximum drawdown',
+                  value: `${livePerformance.maxDrawdown.toFixed(1)}R`,
+                  tone: livePerformance.maxDrawdown > 0 ? 'loss' : undefined,
+                },
+                {
+                  label: 'Recovery factor',
+                  value: formatRatio(livePerformance.recoveryFactor),
+                },
+                { label: 'Best entry hour', value: bestEntryHour },
+                { label: 'Best weekday', value: bestLiveDay },
+                {
+                  label: 'Average MAE on wins',
+                  value:
+                    averageWinningMae === null
+                      ? '—'
+                      : `${averageWinningMae.toFixed(1)} pips`,
                 },
                 { label: 'Market', value: 'GBPUSD · London · 15m' },
               ]}
@@ -2290,9 +2496,9 @@ function JournalTabs({
   onChange: (tab: JournalTab) => void;
 }) {
   const tabs = [
+    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
     { value: 'trades', label: 'Trades', icon: BookOpenCheck },
     { value: 'calendar', label: 'Calendar', icon: CalendarDays },
-    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
   ] as const;
 
   return (
@@ -2312,7 +2518,7 @@ function JournalTabs({
               role="tab"
               aria-selected={active}
               onClick={() => onChange(tab.value)}
-              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium transition ${active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+              className={`tab-pill flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium ${active ? 'is-active bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
             >
               <Icon className="size-4" />
               {tab.label}
@@ -2710,24 +2916,15 @@ function CompleteTradeDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
-  const [resultR, setResultR] = useState(trade?.resultR.toString() ?? '0');
+  const [resultR, setResultR] = useState<'-1' | '2' | ''>(() =>
+    trade?.outcome === 'Win' ? '2' : trade?.outcome === 'Loss' ? '-1' : '',
+  );
   const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
   const [notes, setNotes] = useState(trade?.notes ?? '');
   const [postImage, setPostImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const hasValidResultR =
-    resultR.trim() !== '' &&
-    resultR.trim() !== '-' &&
-    Number.isFinite(Number(resultR));
-  const parsedResultR = Number(resultR);
-  const outcome = hasValidResultR
-    ? parsedResultR > 0
-      ? 'Win'
-      : parsedResultR < 0
-        ? 'Loss'
-        : 'Breakeven'
-    : null;
+  const outcome = resultR === '2' ? 'Win' : resultR === '-1' ? 'Loss' : null;
   const save = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!trade || !outcome) return;
@@ -2762,8 +2959,8 @@ function CompleteTradeDialog({
             {trade?.outcome ? 'Edit trade result' : 'Complete trade'}
           </DialogTitle>
           <DialogDescription>
-            Add the final RR, optional post-trade screenshot, and notes. MAE is
-            only requested for breakeven or winning trades.
+            Mark the trade as a +2R win or -1R loss, then add the optional
+            post-trade screenshot and notes.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
@@ -2773,7 +2970,7 @@ function CompleteTradeDialog({
                 Calculated outcome
               </p>
               <p className="mt-0.5 text-sm font-medium">
-                Positive RR = Win · Negative RR = Loss · 0R = Breakeven
+                +2R = Win · -1R = Loss
               </p>
             </div>
             <Badge
@@ -2786,11 +2983,11 @@ function CompleteTradeDialog({
                     : ''
               }
             >
-              {outcome ?? 'Enter RR'}
+              {outcome ?? 'Choose result'}
             </Badge>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <SignedRField value={resultR} onChange={setResultR} />
+            <BinaryResultField value={resultR} onChange={setResultR} />
             {outcome !== 'Loss' ? (
               <Field label="MAE (pips)">
                 <Input
@@ -3021,22 +3218,19 @@ function OutcomeAnalytics({
   title,
   wins,
   losses,
-  breakeven,
   rows,
 }: {
   title: string;
   wins: number;
   losses: number;
-  breakeven: number;
   rows: OutcomeAnalyticsRow[];
 }) {
   return (
     <article className="surface p-5">
       <h2 className="text-sm font-semibold">{title}</h2>
-      <div className="mt-5 grid grid-cols-3 gap-2">
+      <div className="mt-5 grid grid-cols-2 gap-2">
         <OutcomeStat label="Wins" value={wins} tone="win" />
         <OutcomeStat label="Losses" value={losses} tone="loss" />
-        <OutcomeStat label="Breakeven" value={breakeven} />
       </div>
       <div className="mt-5 grid gap-x-8 gap-y-3 border-t border-border pt-5 sm:grid-cols-2">
         {rows.map((row) => (
@@ -3176,56 +3370,36 @@ function NumberField({
     </Field>
   );
 }
-function SignedRField({
+function BinaryResultField({
   label = 'RR / trade result',
   value,
   onChange,
 }: {
   label?: string;
-  value: string;
-  onChange: (value: string) => void;
+  value: '-1' | '2' | '';
+  onChange: (value: '-1' | '2') => void;
 }) {
-  const presets = ['-1', '0', '1', '2', '3'];
   return (
     <Field label={label}>
-      <div className="flex gap-2">
-        <Input
-          type="text"
-          inputMode="decimal"
-          value={value}
-          placeholder="Example: -1 or 3"
-          aria-describedby="rr-help"
-          onChange={(event) => {
-            const next = event.target.value.replace(',', '.');
-            if (/^-?\d*(?:\.\d*)?$/.test(next)) onChange(next);
-          }}
-        />
-        <Button
+      <div className="grid grid-cols-2 gap-3" aria-label="Trade result">
+        <button
           type="button"
-          variant="outline"
-          className="w-12 text-base"
-          aria-label="Toggle positive or negative RR"
-          onClick={() =>
-            onChange(value.startsWith('-') ? value.slice(1) : `-${value}`)
-          }
+          aria-pressed={value === '2'}
+          onClick={() => onChange('2')}
+          className={`result-choice result-choice-win ${value === '2' ? 'is-active' : ''}`}
         >
-          ±
-        </Button>
-      </div>
-      <div className="flex flex-wrap gap-2" aria-label="Quick RR values">
-        {presets.map((preset) => (
-          <Button
-            key={preset}
-            type="button"
-            variant={value === preset ? 'secondary' : 'outline'}
-            size="sm"
-            className="min-w-12"
-            onClick={() => onChange(preset)}
-          >
-            {Number(preset) > 0 ? '+' : ''}
-            {preset}R
-          </Button>
-        ))}
+          <span className="text-lg font-semibold">+2R</span>
+          <span className="text-[10px] uppercase tracking-[.16em]">Win</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={value === '-1'}
+          onClick={() => onChange('-1')}
+          className={`result-choice result-choice-loss ${value === '-1' ? 'is-active' : ''}`}
+        >
+          <span className="text-lg font-semibold">-1R</span>
+          <span className="text-[10px] uppercase tracking-[.16em]">Loss</span>
+        </button>
       </div>
     </Field>
   );

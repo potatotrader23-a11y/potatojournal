@@ -36,19 +36,22 @@ export async function PATCH(
   const formData = await request.formData();
   const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
   const maePips =
-    resultR !== null && resultR < 0
+    resultR === -1
       ? null
       : cleanTradeNumber(formData.get('maePips'), { limit: 100000 });
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
-  if (resultR === null || (resultR >= 0 && (maePips === null || maePips < 0))) {
+  if (
+    (resultR !== -1 && resultR !== 2) ||
+    (resultR === 2 && (maePips === null || maePips < 0))
+  ) {
     return Response.json(
-      { error: 'Enter a valid RR and MAE' },
+      { error: 'Choose -1R or +2R and enter a valid MAE for wins' },
       { status: 400 },
     );
   }
-  const outcome = resultR > 0 ? 'Win' : resultR < 0 ? 'Loss' : 'Breakeven';
+  const outcome = resultR === 2 ? 'Win' : 'Loss';
 
   const postImage = formData.get('postImage');
   const imageError = validateTradeImage(postImage);

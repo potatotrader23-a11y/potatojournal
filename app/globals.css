@@ -136,6 +136,118 @@ body {
 @layer components {
   .surface {
     @apply rounded-2xl border border-border bg-card shadow-[0_14px_40px_rgba(28,48,94,.08)];
+    transition:
+      border-color 220ms ease,
+      box-shadow 220ms ease,
+      transform 220ms ease;
+  }
+
+  article.surface:hover {
+    border-color: color-mix(in srgb, var(--primary) 22%, var(--border));
+    box-shadow:
+      0 18px 52px rgba(28, 48, 94, 0.12),
+      0 0 0 1px color-mix(in srgb, var(--primary) 7%, transparent);
+    transform: translateY(-2px);
+  }
+
+  .premium-enter {
+    animation: premium-enter 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .tab-pill {
+    position: relative;
+    transition:
+      color 180ms ease,
+      background-color 180ms ease,
+      transform 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .tab-pill:hover {
+    transform: translateY(-1px);
+  }
+
+  .tab-pill.is-active {
+    box-shadow:
+      0 8px 22px color-mix(in srgb, var(--primary) 24%, transparent),
+      inset 0 1px 0 rgb(255 255 255 / 18%);
+  }
+
+  .result-choice {
+    @apply relative flex min-h-20 flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted/25 text-muted-foreground;
+    transition:
+      transform 180ms ease,
+      border-color 180ms ease,
+      background-color 180ms ease,
+      color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .result-choice::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background: radial-gradient(
+      circle at 50% 0%,
+      currentColor,
+      transparent 68%
+    );
+    transition: opacity 180ms ease;
+  }
+
+  .result-choice:hover {
+    transform: translateY(-2px);
+  }
+
+  .result-choice.is-active::before {
+    opacity: 0.1;
+  }
+
+  .result-choice-win.is-active {
+    border-color: rgb(16 185 129 / 48%);
+    background: rgb(16 185 129 / 9%);
+    color: rgb(16 185 129);
+    box-shadow: 0 12px 30px rgb(16 185 129 / 10%);
+  }
+
+  .result-choice-loss.is-active {
+    border-color: color-mix(in srgb, var(--destructive) 48%, transparent);
+    background: color-mix(in srgb, var(--destructive) 9%, transparent);
+    color: var(--destructive);
+    box-shadow: 0 12px 30px
+      color-mix(in srgb, var(--destructive) 10%, transparent);
+  }
+
+  .equity-card {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .equity-card::after {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    width: 18rem;
+    height: 18rem;
+    right: -8rem;
+    top: -10rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    filter: blur(44px);
+    pointer-events: none;
+  }
+
+  .equity-line {
+    stroke-dasharray: 1200;
+    stroke-dashoffset: 1200;
+    animation: equity-trace 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .equity-endpoint {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: endpoint-pulse 2.4s ease-in-out 1.15s infinite;
   }
 
   .app-canvas {
@@ -150,6 +262,50 @@ body {
         rgba(189, 178, 255, 0.12),
         transparent 32%
       );
+  }
+}
+
+@keyframes premium-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes equity-trace {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes endpoint-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.55);
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-enter,
+  .equity-line,
+  .equity-endpoint {
+    animation: none;
+  }
+
+  article.surface:hover,
+  .result-choice:hover {
+    transform: none;
   }
 }
 

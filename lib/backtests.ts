@@ -13,7 +13,7 @@ export function parseVariables(value: FormDataEntryValue | null) {
 
 export function cleanResultR(value: FormDataEntryValue | null) {
   const result = Number(value);
-  return Number.isFinite(result) ? Math.max(-100, Math.min(100, result)) : 0;
+  return result === -1 || result === 2 ? result : null;
 }
 
 export function cleanBacktestDate(value: FormDataEntryValue | null) {
