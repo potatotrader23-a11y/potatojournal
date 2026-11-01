@@ -3379,27 +3379,44 @@ function BinaryResultField({
   value: '-1' | '2' | '';
   onChange: (value: '-1' | '2') => void;
 }) {
+  const fieldId = useId().replaceAll(':', '');
+  const winId = `${fieldId}-win`;
+  const lossId = `${fieldId}-loss`;
   return (
     <Field label={label}>
       <div className="grid grid-cols-2 gap-3" aria-label="Trade result">
-        <button
-          type="button"
-          aria-pressed={value === '2'}
-          onClick={() => onChange('2')}
+        <input
+          id={winId}
+          className="sr-only"
+          type="radio"
+          name={`${fieldId}-result`}
+          value="2"
+          checked={value === '2'}
+          onChange={() => onChange('2')}
+        />
+        <label
+          htmlFor={winId}
           className={`result-choice result-choice-win ${value === '2' ? 'is-active' : ''}`}
         >
           <span className="text-lg font-semibold">+2R</span>
           <span className="text-[10px] uppercase tracking-[.16em]">Win</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={value === '-1'}
-          onClick={() => onChange('-1')}
+        </label>
+        <input
+          id={lossId}
+          className="sr-only"
+          type="radio"
+          name={`${fieldId}-result`}
+          value="-1"
+          checked={value === '-1'}
+          onChange={() => onChange('-1')}
+        />
+        <label
+          htmlFor={lossId}
           className={`result-choice result-choice-loss ${value === '-1' ? 'is-active' : ''}`}
         >
           <span className="text-lg font-semibold">-1R</span>
           <span className="text-[10px] uppercase tracking-[.16em]">Loss</span>
-        </button>
+        </label>
       </div>
     </Field>
   );

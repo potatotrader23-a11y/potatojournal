@@ -175,6 +175,8 @@ body {
 
   .result-choice {
     @apply relative flex min-h-20 flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted/25 text-muted-foreground;
+    cursor: pointer;
+    user-select: none;
     transition:
       transform 180ms ease,
       border-color 180ms ease,
@@ -194,6 +196,13 @@ body {
       transparent 68%
     );
     transition: opacity 180ms ease;
+    pointer-events: none;
+  }
+
+  .result-choice > * {
+    pointer-events: none;
+    position: relative;
+    z-index: 1;
   }
 
   .result-choice:hover {
