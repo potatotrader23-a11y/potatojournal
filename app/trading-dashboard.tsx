@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FlaskConical,
+  GitCompareArrows,
   LayoutDashboard,
   ImagePlus,
   LogOut,
@@ -29,6 +30,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import StrategyLab from './strategy-lab';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -67,7 +69,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
-type View = 'overview' | 'backtesting' | 'journal';
+type View = 'overview' | 'backtesting' | 'journal' | 'strategy-lab';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
   id: string;
@@ -157,6 +159,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'journal', label: 'Journal', icon: BookOpenCheck },
   { id: 'backtesting', label: 'Backtesting', icon: FlaskConical },
+  { id: 'strategy-lab', label: 'Strategy Lab', icon: GitCompareArrows },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -304,6 +307,7 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
                 onChanged={refreshLiveJournal}
               />
             )}
+            {view === 'strategy-lab' && <StrategyLab />}
           </div>
         </div>
       </section>
