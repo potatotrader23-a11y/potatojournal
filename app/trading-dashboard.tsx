@@ -30,7 +30,6 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import StrategyLab from './strategy-lab';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -69,7 +68,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
-type View = 'overview' | 'backtesting' | 'journal' | 'strategy-lab';
+type View = 'overview' | 'backtesting' | 'backtesting-15m' | 'journal';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
   id: string;
@@ -88,6 +87,7 @@ type TradingAccount = {
 type SavedBacktest = {
   id: string;
   instrument: 'GBPUSD';
+  timeframe: '5m' | '15m';
   resultR: number;
   backtestDate: string;
   imageUrl: string | null;
@@ -158,8 +158,8 @@ async function fetchTrades() {
 const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'journal', label: 'Journal', icon: BookOpenCheck },
-  { id: 'backtesting', label: 'Backtesting', icon: FlaskConical },
-  { id: 'strategy-lab', label: 'Strategy Lab', icon: GitCompareArrows },
+  { id: 'backtesting', label: '5m Backtest', icon: FlaskConical },
+  { id: 'backtesting-15m', label: '15m Backtest', icon: GitCompareArrows },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -252,7 +252,12 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             </SheetContent>
           </Sheet>
           <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
-            <Activity className="size-4 text-primary" /> GBPUSD · London · 15m
+            <Activity className="size-4 text-primary" /> GBPUSD ·{' '}
+            {view === 'backtesting'
+              ? '5m research'
+              : view === 'backtesting-15m'
+                ? '15m research'
+                : 'London · 15m'}
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -263,9 +268,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             >
               {light ? <Moon /> : <Sun />}
             </Button>
-            {view === 'backtesting' && (
+            {(view === 'backtesting' || view === 'backtesting-15m') && (
               <Badge variant="outline" className="hidden sm:flex">
-                Backtest workspace
+                {view === 'backtesting' ? '5m' : '15m'} backtest workspace
               </Badge>
             )}
             <button
@@ -295,9 +300,24 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             )}
             {view === 'backtesting' && (
               <Backtesting
-                backtests={backtests}
+                backtests={backtests.filter(
+                  (backtest) => backtest.timeframe === '5m',
+                )}
                 setBacktests={setBacktests}
                 loading={backtestsLoading}
+                timeframe="5m"
+                reward={2}
+              />
+            )}
+            {view === 'backtesting-15m' && (
+              <Backtesting
+                backtests={backtests.filter(
+                  (backtest) => backtest.timeframe === '15m',
+                )}
+                setBacktests={setBacktests}
+                loading={backtestsLoading}
+                timeframe="15m"
+                reward={3}
               />
             )}{' '}
             {view === 'journal' && (
@@ -307,7 +327,6 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
                 onChanged={refreshLiveJournal}
               />
             )}
-            {view === 'strategy-lab' && <StrategyLab />}
           </div>
         </div>
       </section>
@@ -896,14 +915,20 @@ function Backtesting({
   backtests,
   setBacktests,
   loading,
+  timeframe,
+  reward,
 }: {
   backtests: SavedBacktest[];
   setBacktests: React.Dispatch<React.SetStateAction<SavedBacktest[]>>;
   loading: boolean;
+  timeframe: '5m' | '15m';
+  reward: 2 | 3;
 }) {
   const [backtestTab, setBacktestTab] = useState<BacktestTab>('log');
   const [backtestYear, setBacktestYear] = useState('all');
-  const [resultRInput, setResultRInput] = useState<'-1' | '2'>('2');
+  const [resultRInput, setResultRInput] = useState<'-1' | '2' | '3'>(
+    reward === 2 ? '2' : '3',
+  );
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     manilaToday().slice(0, 7),
@@ -940,6 +965,7 @@ function Backtesting({
     try {
       const formData = new FormData();
       formData.set('variables', '{}');
+      formData.set('timeframe', timeframe);
       formData.set('resultR', resultRInput);
       formData.set('backtestDate', backtestDate);
       if (imageFile) formData.set('image', imageFile);
@@ -965,7 +991,7 @@ function Backtesting({
   };
 
   const resetEditor = (nextDate = manilaToday()) => {
-    setResultRInput('2');
+    setResultRInput(reward === 2 ? '2' : '3');
     setBacktestDate(nextDate);
     setImageFile(null);
     setPreviewUrl(null);
@@ -973,7 +999,7 @@ function Backtesting({
     setRemoveExistingImage(false);
   };
   const editBacktest = (item: SavedBacktest) => {
-    setResultRInput(item.resultR > 0 ? '2' : '-1');
+    setResultRInput(item.resultR > 0 ? (reward === 2 ? '2' : '3') : '-1');
     setBacktestDate(item.backtestDate);
     setImageFile(null);
     setPreviewUrl(item.imageUrl);
@@ -1007,10 +1033,14 @@ function Backtesting({
     setDeletingAll(true);
     setDeleteAllError('');
     try {
-      const response = await fetch('/api/backtests', { method: 'DELETE' });
+      const response = await fetch(`/api/backtests?timeframe=${timeframe}`, {
+        method: 'DELETE',
+      });
       if (!response.ok) throw new Error('Unable to delete backtests');
       resetEditor();
-      setBacktests([]);
+      setBacktests((current) =>
+        current.filter((item) => item.timeframe !== timeframe),
+      );
       setSelectedCalendarDate(null);
       setDeleteAllOpen(false);
     } catch {
@@ -1072,8 +1102,8 @@ function Backtesting({
     <>
       <PageHeading
         eyebrow="Strategy laboratory"
-        title="Backtesting"
-        description="A dedicated GBPUSD research workspace, separate from your live journal."
+        title={`${timeframe} backtesting`}
+        description={`A dedicated GBPUSD ${timeframe} research workspace using a fixed +${reward}R win and -1R loss model.`}
       />
       <BacktestTabs
         value={backtestTab}
@@ -1227,7 +1257,9 @@ function Backtesting({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">
-                {editingId ? 'Edit GBPUSD backtest' : 'Log GBPUSD backtest'}
+                {editingId
+                  ? `Edit GBPUSD ${timeframe} backtest`
+                  : `Log GBPUSD ${timeframe} backtest`}
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 Record the date, RR result, and optional chart.
@@ -1242,7 +1274,7 @@ function Backtesting({
                   Backtest market
                 </p>
                 <p className="mt-1 text-lg font-semibold tracking-tight">
-                  GBPUSD
+                  GBPUSD · {timeframe}
                 </p>
               </div>
               <Badge className="bg-primary/12 text-primary" variant="secondary">
@@ -1265,6 +1297,7 @@ function Backtesting({
             <div className="border-t border-border pt-5">
               <BinaryResultField
                 value={resultRInput}
+                reward={reward}
                 onChange={(next) => {
                   setResultRInput(next);
                   setSaveState('idle');
@@ -1274,7 +1307,8 @@ function Backtesting({
                 id="rr-help"
                 className="mt-2 text-[10px] text-muted-foreground"
               >
-                Choose the fixed outcome: +2R for a win or -1R for a loss.
+                Choose the fixed outcome: +{reward}R for a win or -1R for a
+                loss.
               </p>
             </div>
             <div className="border-t border-border pt-5">
@@ -1380,7 +1414,7 @@ function Backtesting({
             <div>
               <h2 className="text-sm font-semibold">Backtest history</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Your saved GBPUSD results and chart screenshots.
+                Your saved GBPUSD {timeframe} results and chart screenshots.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1550,7 +1584,9 @@ function Backtesting({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete all backtest history?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete all {timeframe} backtest history?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes all {backtests.length} saved backtests
               and their chart screenshots, including entries outside the
@@ -2248,6 +2284,7 @@ function Journal({
     .map((item) => ({
       id: item.id,
       instrument: 'GBPUSD',
+      timeframe: '15m',
       resultR: item.resultR,
       backtestDate: item.tradeDate,
       imageUrl: item.imageUrl,
@@ -2920,7 +2957,7 @@ function CompleteTradeDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
-  const [resultR, setResultR] = useState<'-1' | '2' | ''>(() =>
+  const [resultR, setResultR] = useState<'-1' | '2' | '3' | ''>(() =>
     trade?.outcome === 'Win' ? '2' : trade?.outcome === 'Loss' ? '-1' : '',
   );
   const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
@@ -3378,14 +3415,17 @@ function BinaryResultField({
   label = 'RR / trade result',
   value,
   onChange,
+  reward = 2,
 }: {
   label?: string;
-  value: '-1' | '2' | '';
-  onChange: (value: '-1' | '2') => void;
+  value: '-1' | '2' | '3' | '';
+  onChange: (value: '-1' | '2' | '3') => void;
+  reward?: 2 | 3;
 }) {
   const fieldId = useId().replaceAll(':', '');
   const winId = `${fieldId}-win`;
   const lossId = `${fieldId}-loss`;
+  const winValue = reward === 2 ? '2' : '3';
   return (
     <Field label={label}>
       <div className="grid grid-cols-2 gap-3" aria-label="Trade result">
@@ -3394,15 +3434,15 @@ function BinaryResultField({
           className="sr-only"
           type="radio"
           name={`${fieldId}-result`}
-          value="2"
-          checked={value === '2'}
-          onChange={() => onChange('2')}
+          value={winValue}
+          checked={value === winValue}
+          onChange={() => onChange(winValue)}
         />
         <label
           htmlFor={winId}
-          className={`result-choice result-choice-win ${value === '2' ? 'is-active' : ''}`}
+          className={`result-choice result-choice-win ${value === winValue ? 'is-active' : ''}`}
         >
-          <span className="text-lg font-semibold">+2R</span>
+          <span className="text-lg font-semibold">+{reward}R</span>
           <span className="text-[10px] uppercase tracking-[.16em]">Win</span>
         </label>
         <input

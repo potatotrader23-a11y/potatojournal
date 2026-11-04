@@ -1,6 +1,7 @@
 import {
   backtestImagePath,
   cleanBacktestDate,
+  cleanBacktestTimeframe,
   cleanBacktestVariables,
   cleanResultR,
   parseVariables,
@@ -18,7 +19,7 @@ async function authenticatedBacktest(id: string) {
 
   const { data, error } = await supabase
     .from('backtests')
-    .select('id, image_path')
+    .select('id, image_path, timeframe')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle();
@@ -53,10 +54,16 @@ export async function PATCH(
   const backtestDate = cleanBacktestDate(formData.get('backtestDate'));
   if (!backtestDate)
     return Response.json({ error: 'Invalid backtest date' }, { status: 400 });
-  const resultR = cleanResultR(formData.get('resultR'));
+  const timeframe = cleanBacktestTimeframe(context.backtest.timeframe);
+  if (!timeframe) {
+    return Response.json({ error: 'Invalid timeframe' }, { status: 500 });
+  }
+  const resultR = cleanResultR(timeframe, formData.get('resultR'));
   if (resultR === null) {
     return Response.json(
-      { error: 'Result must be either -1R or +2R' },
+      {
+        error: `Result must be either -1R or +${timeframe === '5m' ? 2 : 3}R`,
+      },
       { status: 400 },
     );
   }

@@ -11,9 +11,23 @@ export function parseVariables(value: FormDataEntryValue | null) {
   }
 }
 
-export function cleanResultR(value: FormDataEntryValue | null) {
+export type BacktestTimeframe = '5m' | '15m';
+
+export function cleanBacktestTimeframe(
+  value: FormDataEntryValue | null,
+): BacktestTimeframe | null {
+  return value === '5m' || value === '15m' ? value : null;
+}
+
+export function cleanResultR(
+  timeframe: BacktestTimeframe,
+  value: FormDataEntryValue | null,
+) {
   const result = Number(value);
-  return result === -1 || result === 2 ? result : null;
+  if (result === -1) return result;
+  if (timeframe === '5m' && result === 2) return result;
+  if (timeframe === '15m' && result === 3) return result;
+  return null;
 }
 
 export function cleanBacktestDate(value: FormDataEntryValue | null) {

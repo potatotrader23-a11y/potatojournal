@@ -2,6 +2,7 @@ import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 import {
   backtestImagePath,
   cleanBacktestDate,
+  cleanBacktestTimeframe,
   cleanBacktestVariables,
   cleanResultR,
   parseVariables,
@@ -25,7 +26,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('backtests')
     .select(
-      'id, instrument, variables, results, image_path, backtest_date, created_at',
+      'id, instrument, timeframe, variables, results, image_path, backtest_date, created_at',
     )
     .order('backtest_date', { ascending: false })
     .order('created_at', { ascending: false });
@@ -47,6 +48,7 @@ export async function GET() {
     rows.map((row, index) => ({
       id: row.id,
       instrument: row.instrument,
+      timeframe: row.timeframe,
       variables: cleanBacktestVariables(row.variables),
       resultR:
         row.results &&
@@ -86,10 +88,16 @@ export async function POST(request: Request) {
   const backtestDate = cleanBacktestDate(formData.get('backtestDate'));
   if (!backtestDate)
     return Response.json({ error: 'Invalid backtest date' }, { status: 400 });
-  const resultR = cleanResultR(formData.get('resultR'));
+  const timeframe = cleanBacktestTimeframe(formData.get('timeframe'));
+  if (!timeframe) {
+    return Response.json({ error: 'Invalid timeframe' }, { status: 400 });
+  }
+  const resultR = cleanResultR(timeframe, formData.get('resultR'));
   if (resultR === null) {
     return Response.json(
-      { error: 'Result must be either -1R or +2R' },
+      {
+        error: `Result must be either -1R or +${timeframe === '5m' ? 2 : 3}R`,
+      },
       { status: 400 },
     );
   }
@@ -111,6 +119,7 @@ export async function POST(request: Request) {
     user_id: user.id,
     account_id: null,
     instrument: 'GBPUSD',
+    timeframe,
     assumptions: {},
     variables: cleanBacktestVariables(variables),
     results: { resultR },
@@ -127,7 +136,7 @@ export async function POST(request: Request) {
   return Response.json({ id, status: 'saved' });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   if (!hasSupabaseEnvironment()) {
     return Response.json(
       { error: 'Supabase is not configured' },
@@ -141,10 +150,18 @@ export async function DELETE() {
   } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const timeframe = cleanBacktestTimeframe(
+    new URL(request.url).searchParams.get('timeframe'),
+  );
+  if (!timeframe) {
+    return Response.json({ error: 'Invalid timeframe' }, { status: 400 });
+  }
+
   const { data, error: findError } = await supabase
     .from('backtests')
     .select('image_path')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('timeframe', timeframe);
   if (findError) {
     return Response.json({ error: findError.message }, { status: 500 });
   }
@@ -152,7 +169,8 @@ export async function DELETE() {
   const { error: deleteError, count } = await supabase
     .from('backtests')
     .delete({ count: 'exact' })
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('timeframe', timeframe);
   if (deleteError) {
     return Response.json({ error: deleteError.message }, { status: 500 });
   }
