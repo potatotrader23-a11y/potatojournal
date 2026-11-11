@@ -1,7 +1,6 @@
 import {
   backtestImagePath,
   cleanBacktestDate,
-  cleanBacktestDirection,
   cleanBacktestTimeframe,
   cleanBacktestVariables,
   cleanResultR,
@@ -68,16 +67,6 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  const confluenceDirection =
-    timeframe === '15m'
-      ? cleanBacktestDirection(formData.get('confluenceDirection'))
-      : null;
-  if (timeframe === '15m' && !confluenceDirection) {
-    return Response.json(
-      { error: 'Choose an uptrend or downtrend direction' },
-      { status: 400 },
-    );
-  }
 
   let nextImagePath = context.backtest.image_path as string | null;
   if (formData.get('removeImage') === 'true') nextImagePath = null;
@@ -97,7 +86,6 @@ export async function PATCH(
     .update({
       variables: cleanBacktestVariables(variables),
       results: { resultR },
-      confluence_direction: confluenceDirection,
       backtest_date: backtestDate,
       image_path: nextImagePath,
     })

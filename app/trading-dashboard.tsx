@@ -88,7 +88,6 @@ type SavedBacktest = {
   id: string;
   instrument: 'GBPUSD';
   timeframe: '5m' | '15m';
-  confluenceDirection: 'Uptrend' | 'Downtrend' | null;
   resultR: number;
   backtestDate: string;
   imageUrl: string | null;
@@ -930,9 +929,6 @@ function Backtesting({
   const [resultRInput, setResultRInput] = useState<'-1' | '2' | '3'>(
     reward === 2 ? '2' : '3',
   );
-  const [confluenceDirection, setConfluenceDirection] = useState<
-    'Uptrend' | 'Downtrend'
-  >('Uptrend');
   const [backtestDate, setBacktestDate] = useState(manilaToday);
   const [calendarMonth, setCalendarMonth] = useState(() =>
     manilaToday().slice(0, 7),
@@ -972,9 +968,6 @@ function Backtesting({
       formData.set('timeframe', timeframe);
       formData.set('resultR', resultRInput);
       formData.set('backtestDate', backtestDate);
-      if (timeframe === '15m') {
-        formData.set('confluenceDirection', confluenceDirection);
-      }
       if (imageFile) formData.set('image', imageFile);
       if (removeExistingImage) formData.set('removeImage', 'true');
       const response = await fetch(
@@ -999,7 +992,6 @@ function Backtesting({
 
   const resetEditor = (nextDate = manilaToday()) => {
     setResultRInput(reward === 2 ? '2' : '3');
-    setConfluenceDirection('Uptrend');
     setBacktestDate(nextDate);
     setImageFile(null);
     setPreviewUrl(null);
@@ -1008,7 +1000,6 @@ function Backtesting({
   };
   const editBacktest = (item: SavedBacktest) => {
     setResultRInput(item.resultR > 0 ? (reward === 2 ? '2' : '3') : '-1');
-    setConfluenceDirection(item.confluenceDirection ?? 'Uptrend');
     setBacktestDate(item.backtestDate);
     setImageFile(null);
     setPreviewUrl(item.imageUrl);
@@ -1256,9 +1247,6 @@ function Backtesting({
               { label: 'Best weekday', value: bestBacktestDay },
             ]}
           />
-          {timeframe === '15m' ? (
-            <DirectionConfluenceAnalytics backtests={filteredBacktests} />
-          ) : null}
         </div>
       )}
       {backtestTab === 'log' && (
@@ -1307,52 +1295,6 @@ function Backtesting({
                 />
               </Field>
             </div>
-            {timeframe === '15m' ? (
-              <div className="border-t border-border pt-5">
-                <Field label="Direction confluence">
-                  <div
-                    className="grid grid-cols-2 gap-3"
-                    aria-label="Direction confluence"
-                  >
-                    {(['Uptrend', 'Downtrend'] as const).map((direction) => {
-                      const id = `backtest-direction-${direction.toLowerCase()}`;
-                      return (
-                        <div key={direction}>
-                          <input
-                            id={id}
-                            className="sr-only"
-                            type="radio"
-                            name="backtest-direction"
-                            value={direction}
-                            checked={confluenceDirection === direction}
-                            onChange={() => {
-                              setConfluenceDirection(direction);
-                              setSaveState('idle');
-                            }}
-                          />
-                          <label
-                            htmlFor={id}
-                            className={`result-choice direction-choice ${direction === 'Uptrend' ? 'direction-choice-up' : 'direction-choice-down'} ${confluenceDirection === direction ? 'is-active' : ''}`}
-                          >
-                            {confluenceDirection === direction ? (
-                              <span className="direction-check">
-                                <Check className="size-3" />
-                              </span>
-                            ) : null}
-                            <span className="text-base font-semibold">
-                              {direction}
-                            </span>
-                            <span className="text-[10px] uppercase tracking-[.16em]">
-                              Market direction
-                            </span>
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Field>
-              </div>
-            ) : null}
             <div className="border-t border-border pt-5">
               <BinaryResultField
                 value={resultRInput}
@@ -1558,11 +1500,6 @@ function Backtesting({
                         {item.resultR > 0 ? '+' : ''}
                         {item.resultR}R
                       </Badge>
-                      {item.confluenceDirection ? (
-                        <Badge variant="outline">
-                          {item.confluenceDirection}
-                        </Badge>
-                      ) : null}
                     </div>
                     <div className="mt-4 flex gap-2 border-t border-border pt-3">
                       <Button
@@ -1969,11 +1906,6 @@ function BacktestDayDialog({
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
-                  {backtest.confluenceDirection ? (
-                    <Badge variant="outline">
-                      {backtest.confluenceDirection}
-                    </Badge>
-                  ) : null}
                   <Badge
                     variant="secondary"
                     className={
@@ -2236,109 +2168,6 @@ function LiveEquityCurve({ trades }: { trades: SavedTrade[] }) {
   );
 }
 
-function DirectionConfluenceAnalytics({
-  backtests,
-}: {
-  backtests: SavedBacktest[];
-}) {
-  const directions = (['Uptrend', 'Downtrend'] as const).map((direction) => {
-    const entries = backtests.filter(
-      (item) => item.confluenceDirection === direction,
-    );
-    const wins = entries.filter((item) => item.resultR > 0).length;
-    const net = entries.reduce((sum, item) => sum + item.resultR, 0);
-    return {
-      direction,
-      trades: entries.length,
-      wins,
-      net,
-      winRate: entries.length ? (wins / entries.length) * 100 : null,
-      expectancy: entries.length ? net / entries.length : null,
-    };
-  });
-  const ranked = directions
-    .filter((item) => item.expectancy !== null)
-    .toSorted(
-      (a, b) =>
-        (b.expectancy ?? -Infinity) - (a.expectancy ?? -Infinity) ||
-        b.net - a.net,
-    );
-  const unclassified = backtests.filter(
-    (item) => item.confluenceDirection === null,
-  ).length;
-
-  return (
-    <article className="surface p-5 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[9px] font-semibold uppercase tracking-[.18em] text-primary">
-            Confluence study
-          </p>
-          <h2 className="mt-1 text-sm font-semibold">Direction performance</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Compare how the 15m setup performs with an uptrend versus a
-            downtrend.
-          </p>
-        </div>
-        <Badge variant="outline">
-          {ranked[0]
-            ? `Best: ${ranked[0].direction}`
-            : 'Log entries to compare'}
-        </Badge>
-      </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        {directions.map((item) => {
-          const Icon = item.direction === 'Uptrend' ? TrendingUp : TrendingDown;
-          return (
-            <div
-              key={item.direction}
-              className="rounded-2xl border border-border bg-muted/25 p-4"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Icon className="size-4 text-primary" />
-                  <p className="text-sm font-semibold">{item.direction}</p>
-                </div>
-                <span
-                  className={`text-sm font-semibold ${item.net > 0 ? 'text-emerald-500' : item.net < 0 ? 'text-destructive' : ''}`}
-                >
-                  {item.net > 0 ? '+' : ''}
-                  {item.net.toFixed(1)}R
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                <TinyStat label="Entries" value={String(item.trades)} />
-                <TinyStat
-                  label="Win rate"
-                  value={
-                    item.winRate === null ? '—' : `${item.winRate.toFixed(1)}%`
-                  }
-                />
-                <TinyStat
-                  label="Expectancy"
-                  value={
-                    item.expectancy === null
-                      ? '—'
-                      : `${item.expectancy > 0 ? '+' : ''}${item.expectancy.toFixed(2)}R`
-                  }
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {unclassified ? (
-        <p className="mt-3 text-[10px] text-muted-foreground">
-          {unclassified} older{' '}
-          {unclassified === 1 ? 'entry has' : 'entries have'}
-          {' no'} direction recorded and {unclassified === 1 ? 'is' : 'are'}
-          {' excluded from this comparison.'}
-        </p>
-      ) : null}
-    </article>
-  );
-}
-
 function BacktestStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="surface p-4">
@@ -2460,7 +2289,6 @@ function Journal({
       id: item.id,
       instrument: 'GBPUSD',
       timeframe: '15m',
-      confluenceDirection: null,
       resultR: item.resultR,
       backtestDate: item.tradeDate,
       imageUrl: item.imageUrl,
