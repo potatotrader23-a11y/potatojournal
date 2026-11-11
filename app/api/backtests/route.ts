@@ -2,6 +2,7 @@ import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 import {
   backtestImagePath,
   cleanBacktestDate,
+  cleanBacktestDirection,
   cleanBacktestTimeframe,
   cleanBacktestVariables,
   cleanResultR,
@@ -26,7 +27,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('backtests')
     .select(
-      'id, instrument, timeframe, variables, results, image_path, backtest_date, created_at',
+      'id, instrument, timeframe, confluence_direction, variables, results, image_path, backtest_date, created_at',
     )
     .order('backtest_date', { ascending: false })
     .order('created_at', { ascending: false });
@@ -49,6 +50,7 @@ export async function GET() {
       id: row.id,
       instrument: row.instrument,
       timeframe: row.timeframe,
+      confluenceDirection: row.confluence_direction,
       variables: cleanBacktestVariables(row.variables),
       resultR:
         row.results &&
@@ -101,6 +103,16 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const confluenceDirection =
+    timeframe === '15m'
+      ? cleanBacktestDirection(formData.get('confluenceDirection'))
+      : null;
+  if (timeframe === '15m' && !confluenceDirection) {
+    return Response.json(
+      { error: 'Choose an uptrend or downtrend direction' },
+      { status: 400 },
+    );
+  }
 
   const id = crypto.randomUUID();
   let imagePath: string | null = null;
@@ -120,6 +132,7 @@ export async function POST(request: Request) {
     account_id: null,
     instrument: 'GBPUSD',
     timeframe,
+    confluence_direction: confluenceDirection,
     assumptions: {},
     variables: cleanBacktestVariables(variables),
     results: { resultR },

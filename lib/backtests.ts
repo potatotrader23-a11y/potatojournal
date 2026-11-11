@@ -12,11 +12,18 @@ export function parseVariables(value: FormDataEntryValue | null) {
 }
 
 export type BacktestTimeframe = '5m' | '15m';
+export type BacktestDirection = 'Uptrend' | 'Downtrend';
 
 export function cleanBacktestTimeframe(
   value: FormDataEntryValue | null,
 ): BacktestTimeframe | null {
   return value === '5m' || value === '15m' ? value : null;
+}
+
+export function cleanBacktestDirection(
+  value: FormDataEntryValue | null,
+): BacktestDirection | null {
+  return value === 'Uptrend' || value === 'Downtrend' ? value : null;
 }
 
 export function cleanResultR(
