@@ -1332,8 +1332,13 @@ function Backtesting({
                           />
                           <label
                             htmlFor={id}
-                            className={`result-choice ${confluenceDirection === direction ? 'is-active' : ''}`}
+                            className={`result-choice direction-choice ${direction === 'Uptrend' ? 'direction-choice-up' : 'direction-choice-down'} ${confluenceDirection === direction ? 'is-active' : ''}`}
                           >
+                            {confluenceDirection === direction ? (
+                              <span className="direction-check">
+                                <Check className="size-3" />
+                              </span>
+                            ) : null}
                             <span className="text-base font-semibold">
                               {direction}
                             </span>
