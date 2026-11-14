@@ -5,6 +5,7 @@ import {
   type SyntheticEvent,
   useEffect,
   useId,
+  useMemo,
   useState,
 } from 'react';
 import Image from 'next/image';
@@ -79,6 +80,7 @@ type View =
   | 'backtesting'
   | 'backtesting-15m'
   | 'backtesting-combined'
+  | 'monte-carlo'
   | 'journal';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
@@ -183,6 +185,7 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
     label: 'Combined Backtest',
     icon: BarChart3,
   },
+  { id: 'monte-carlo', label: 'Monte Carlo', icon: Sparkles },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -282,9 +285,11 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
                 ? '15m research'
                 : view === 'backtesting-combined'
                   ? '5m + 15m research'
-                  : view === 'journal'
-                    ? 'London · 5m + 15m'
-                    : 'London journal'}
+                  : view === 'monte-carlo'
+                    ? 'Monte Carlo risk lab'
+                    : view === 'journal'
+                      ? 'London · 5m + 15m'
+                      : 'London journal'}
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -297,14 +302,17 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             </Button>
             {(view === 'backtesting' ||
               view === 'backtesting-15m' ||
-              view === 'backtesting-combined') && (
+              view === 'backtesting-combined' ||
+              view === 'monte-carlo') && (
               <Badge variant="outline" className="hidden sm:flex">
                 {view === 'backtesting'
                   ? '5m'
                   : view === 'backtesting-15m'
                     ? '15m'
-                    : '5m + 15m'}{' '}
-                backtest workspace
+                    : view === 'monte-carlo'
+                      ? 'Simulation'
+                      : '5m + 15m'}{' '}
+                {view === 'monte-carlo' ? 'workspace' : 'backtest workspace'}
               </Badge>
             )}
             <button
@@ -356,6 +364,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             )}
             {view === 'backtesting-combined' && (
               <CombinedBacktesting backtests={backtests} />
+            )}
+            {view === 'monte-carlo' && (
+              <MonteCarloSimulator backtests={backtests} />
             )}{' '}
             {view === 'journal' && (
               <Journal
@@ -574,6 +585,136 @@ function longestUnderwaterRun(results: number[]) {
     longestRun = Math.max(longestRun, currentRun);
   });
   return longestRun;
+}
+
+type MonteCarloBandPoint = {
+  step: number;
+  p5: number;
+  p25: number;
+  median: number;
+  p75: number;
+  p95: number;
+};
+type MonteCarloResult = {
+  profitProbability: number;
+  thresholdProbability: number;
+  medianEnding: number;
+  meanEnding: number;
+  p5Ending: number;
+  p95Ending: number;
+  medianDrawdown: number;
+  p95Drawdown: number;
+  medianLossStreak: number;
+  p95LossStreak: number;
+  endings: number[];
+  bands: MonteCarloBandPoint[];
+};
+function seededRandom(seed: number) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let next = value;
+    next = Math.imul(next ^ (next >>> 15), next | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function percentile(sorted: number[], percentileValue: number) {
+  if (!sorted.length) return 0;
+  const index = (sorted.length - 1) * percentileValue;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+function runMonteCarlo({
+  results,
+  simulations,
+  pathLength,
+  threshold,
+  seed,
+}: {
+  results: number[];
+  simulations: number;
+  pathLength: number;
+  threshold: number;
+  seed: number;
+}): MonteCarloResult {
+  const random = seededRandom(seed);
+  const checkpointCount = Math.min(60, pathLength);
+  const checkpointSteps = [
+    ...new Set(
+      Array.from({ length: checkpointCount + 1 }, (_, index) =>
+        Math.round((index / checkpointCount) * pathLength),
+      ),
+    ),
+  ];
+  const checkpointBuckets = checkpointSteps.map(() => [] as number[]);
+  const endings: number[] = [];
+  const drawdowns: number[] = [];
+  const lossStreaks: number[] = [];
+  let profitablePaths = 0;
+  let thresholdBreaches = 0;
+
+  for (let simulation = 0; simulation < simulations; simulation += 1) {
+    let equity = 0;
+    let peak = 0;
+    let maxDrawdown = 0;
+    let currentLossStreak = 0;
+    let maxLossStreak = 0;
+    let checkpointIndex = 0;
+    checkpointBuckets[0].push(0);
+    checkpointIndex += 1;
+
+    for (let step = 1; step <= pathLength; step += 1) {
+      const result = results[Math.floor(random() * results.length)];
+      equity += result;
+      peak = Math.max(peak, equity);
+      maxDrawdown = Math.max(maxDrawdown, peak - equity);
+      currentLossStreak = result < 0 ? currentLossStreak + 1 : 0;
+      maxLossStreak = Math.max(maxLossStreak, currentLossStreak);
+      if (checkpointSteps[checkpointIndex] === step) {
+        checkpointBuckets[checkpointIndex].push(equity);
+        checkpointIndex += 1;
+      }
+    }
+
+    endings.push(equity);
+    drawdowns.push(maxDrawdown);
+    lossStreaks.push(maxLossStreak);
+    if (equity > 0) profitablePaths += 1;
+    if (maxDrawdown >= threshold) thresholdBreaches += 1;
+  }
+
+  endings.sort((a, b) => a - b);
+  drawdowns.sort((a, b) => a - b);
+  lossStreaks.sort((a, b) => a - b);
+  const bands = checkpointSteps.map((step, index) => {
+    const values = checkpointBuckets[index].toSorted((a, b) => a - b);
+    return {
+      step,
+      p5: percentile(values, 0.05),
+      p25: percentile(values, 0.25),
+      median: percentile(values, 0.5),
+      p75: percentile(values, 0.75),
+      p95: percentile(values, 0.95),
+    };
+  });
+  return {
+    profitProbability: (profitablePaths / simulations) * 100,
+    thresholdProbability: (thresholdBreaches / simulations) * 100,
+    medianEnding: percentile(endings, 0.5),
+    meanEnding:
+      endings.reduce((total, result) => total + result, 0) / simulations,
+    p5Ending: percentile(endings, 0.05),
+    p95Ending: percentile(endings, 0.95),
+    medianDrawdown: percentile(drawdowns, 0.5),
+    p95Drawdown: percentile(drawdowns, 0.95),
+    medianLossStreak: percentile(lossStreaks, 0.5),
+    p95LossStreak: percentile(lossStreaks, 0.95),
+    endings,
+    bands,
+  };
 }
 
 function formatRatio(value: number | null) {
@@ -1684,6 +1825,547 @@ function Backtesting({
     </>
   );
 }
+function MonteCarloSimulator({ backtests }: { backtests: SavedBacktest[] }) {
+  const [strategy, setStrategy] = useState<'both' | '5m' | '15m'>('both');
+  const [year, setYear] = useState('all');
+  const [month, setMonth] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [weekdays, setWeekdays] = useState(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+  const [simulationCount, setSimulationCount] = useState('2500');
+  const [sequenceLength, setSequenceLength] = useState('sample');
+  const [riskThreshold, setRiskThreshold] = useState(10);
+  const [seed, setSeed] = useState(23);
+  const years = availableYears(backtests.map((item) => item.backtestDate));
+  const filteredBacktests = useMemo(
+    () =>
+      backtests.filter((item) => {
+        if (strategy !== 'both' && item.timeframe !== strategy) return false;
+        if (!isInYear(item.backtestDate, year)) return false;
+        if (month !== 'all' && item.backtestDate.slice(5, 7) !== month)
+          return false;
+        if (dateFrom && item.backtestDate < dateFrom) return false;
+        if (dateTo && item.backtestDate > dateTo) return false;
+        return weekdays.includes(weekdayLabel(item.backtestDate));
+      }),
+    [backtests, strategy, year, month, dateFrom, dateTo, weekdays],
+  );
+  const results = useMemo(
+    () => filteredBacktests.map((item) => item.resultR),
+    [filteredBacktests],
+  );
+  const sampleStats = performanceStats(results);
+  const sampleWins = results.filter((result) => result > 0).length;
+  const fiveMinuteCount = filteredBacktests.filter(
+    (item) => item.timeframe === '5m',
+  ).length;
+  const fifteenMinuteCount = filteredBacktests.length - fiveMinuteCount;
+  const pathLength =
+    sequenceLength === 'sample'
+      ? filteredBacktests.length
+      : Number(sequenceLength);
+  const simulations = Number(simulationCount);
+  const simulation = useMemo(
+    () =>
+      results.length && pathLength > 0
+        ? runMonteCarlo({
+            results,
+            simulations,
+            pathLength,
+            threshold: Math.max(0.1, riskThreshold),
+            seed,
+          })
+        : null,
+    [results, simulations, pathLength, riskThreshold, seed],
+  );
+  const toggleWeekday = (weekday: string) => {
+    setWeekdays((current) =>
+      current.includes(weekday)
+        ? current.filter((item) => item !== weekday)
+        : [...current, weekday],
+    );
+  };
+  const resetFilters = () => {
+    setStrategy('both');
+    setYear('all');
+    setMonth('all');
+    setDateFrom('');
+    setDateTo('');
+    setWeekdays(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+  };
+  const formatR = (value: number) =>
+    `${value > 0 ? '+' : ''}${value.toFixed(1)}R`;
+
+  return (
+    <>
+      <PageHeading
+        eyebrow="Probability and risk laboratory"
+        title="Monte Carlo simulator"
+        description="Stress-test the saved 5m and 15m GBPUSD backtests by resampling filtered outcomes into thousands of possible future sequences."
+        action={
+          <Button
+            variant="outline"
+            onClick={() => setSeed((current) => current + 1)}
+          >
+            <Sparkles /> New random run
+          </Button>
+        }
+      />
+
+      <section className="surface p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Advanced sample filters</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Every change rebuilds the simulation from only the matching saved
+              backtests.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={resetFilters}
+          >
+            Reset filters
+          </Button>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="Strategy data">
+            <Select
+              value={strategy}
+              onValueChange={(value) => {
+                if (value === 'both' || value === '5m' || value === '15m')
+                  setStrategy(value);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="both">5m + 15m combined</SelectItem>
+                <SelectItem value="5m">5m only · +2R / -1R</SelectItem>
+                <SelectItem value="15m">15m only · +3R / -1R</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Year">
+            <Select
+              value={year}
+              onValueChange={(value) => value && setYear(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All time</SelectItem>
+                {years.map((availableYear) => (
+                  <SelectItem key={availableYear} value={availableYear}>
+                    {availableYear}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Calendar month">
+            <Select
+              value={month}
+              onValueChange={(value) => value && setMonth(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All months</SelectItem>
+                {shortMonthNames.map((monthName, index) => (
+                  <SelectItem
+                    key={monthName}
+                    value={String(index + 1).padStart(2, '0')}
+                  >
+                    {monthName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Drawdown risk threshold (R)">
+            <Input
+              type="number"
+              min="0.1"
+              max="1000"
+              step="0.5"
+              value={riskThreshold}
+              onChange={(event) =>
+                setRiskThreshold(
+                  Math.max(0.1, Number(event.target.value) || 0.1),
+                )
+              }
+            />
+          </Field>
+          <Field label="From date">
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+            />
+          </Field>
+          <Field label="To date">
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+            />
+          </Field>
+          <Field label="Simulation count">
+            <Select
+              value={simulationCount}
+              onValueChange={(value) => value && setSimulationCount(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="500">500 paths · fast</SelectItem>
+                <SelectItem value="1000">1,000 paths</SelectItem>
+                <SelectItem value="2500">2,500 paths · balanced</SelectItem>
+                <SelectItem value="5000">5,000 paths · deeper</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Trades per path">
+            <Select
+              value={sequenceLength}
+              onValueChange={(value) => value && setSequenceLength(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sample">Same as filtered sample</SelectItem>
+                <SelectItem value="50">50 trades</SelectItem>
+                <SelectItem value="100">100 trades</SelectItem>
+                <SelectItem value="200">200 trades</SelectItem>
+                <SelectItem value="500">500 trades</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+        <div className="mt-5 border-t border-border pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <Label className="text-xs">Trading weekdays</Label>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Select one or more weekdays to include.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {tradingWeekdays.map((weekday) => {
+                const active = weekdays.includes(weekday.key);
+                return (
+                  <button
+                    key={weekday.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleWeekday(weekday.key)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${active ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-border text-muted-foreground hover:bg-muted'}`}
+                  >
+                    {weekday.key}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <BacktestStat
+          label="Filtered sample"
+          value={`${filteredBacktests.length} trades`}
+        />
+        <BacktestStat
+          label="Sample win rate"
+          value={
+            filteredBacktests.length
+              ? `${((sampleWins / filteredBacktests.length) * 100).toFixed(1)}%`
+              : '—'
+          }
+        />
+        <BacktestStat
+          label="Sample net result"
+          value={filteredBacktests.length ? formatR(sampleStats.net) : '—'}
+        />
+        <BacktestStat
+          label="Strategy mix"
+          value={`${fiveMinuteCount} × 5m · ${fifteenMinuteCount} × 15m`}
+        />
+      </div>
+
+      {simulation ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <BacktestStat
+              label="Chance of finishing profitable"
+              value={`${simulation.profitProbability.toFixed(1)}%`}
+            />
+            <BacktestStat
+              label="Median ending result"
+              value={formatR(simulation.medianEnding)}
+            />
+            <BacktestStat
+              label="5th percentile ending"
+              value={formatR(simulation.p5Ending)}
+            />
+            <BacktestStat
+              label={`Chance DD reaches ${riskThreshold.toFixed(1)}R`}
+              value={`${simulation.thresholdProbability.toFixed(1)}%`}
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.45fr_1fr]">
+            <MonteCarloBandChart
+              bands={simulation.bands}
+              pathLength={pathLength}
+              simulations={simulations}
+            />
+            <MonteCarloHistogram endings={simulation.endings} />
+          </div>
+
+          <section className="surface p-5 sm:p-6">
+            <div>
+              <h2 className="text-sm font-semibold">Tail-risk analytics</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Median conditions versus the more defensive 95th-percentile risk
+                estimate.
+              </p>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <TinyStat
+                label="Mean ending result"
+                value={formatR(simulation.meanEnding)}
+              />
+              <TinyStat
+                label="90% ending range"
+                value={`${formatR(simulation.p5Ending)} to ${formatR(simulation.p95Ending)}`}
+              />
+              <TinyStat
+                label="Median max drawdown"
+                value={`${simulation.medianDrawdown.toFixed(1)}R`}
+              />
+              <TinyStat
+                label="95% max drawdown"
+                value={`${simulation.p95Drawdown.toFixed(1)}R`}
+              />
+              <TinyStat
+                label="Median longest loss streak"
+                value={`${simulation.medianLossStreak.toFixed(0)} trades`}
+              />
+              <TinyStat
+                label="95% longest loss streak"
+                value={`${simulation.p95LossStreak.toFixed(0)} trades`}
+              />
+              <TinyStat
+                label="Historical expectancy"
+                value={
+                  sampleStats.expectancy === null
+                    ? '—'
+                    : `${sampleStats.expectancy >= 0 ? '+' : ''}${sampleStats.expectancy.toFixed(2)}R / trade`
+                }
+              />
+              <TinyStat label="Random seed" value={`${seed}`} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-amber-500/25 bg-amber-500/[.055] p-5 sm:p-6">
+            <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-amber-600 dark:text-amber-400">
+              How to use this
+            </p>
+            <p className="mt-2 text-sm font-medium">
+              Plan risk around the 95th-percentile drawdown and losing
+              streak—not only the median path.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {filteredBacktests.length < 30
+                ? `Only ${filteredBacktests.length} trades match these filters, so the distribution is highly uncertain. `
+                : ''}
+              Bootstrap simulation resamples your historical outcomes with
+              replacement. It measures sequence risk under similar conditions;
+              it does not predict market changes or prove future profitability.
+            </p>
+          </section>
+        </div>
+      ) : (
+        <section className="surface mt-4 p-8 text-center sm:p-12">
+          <Sparkles className="mx-auto size-6 text-primary" />
+          <h2 className="mt-3 text-sm font-semibold">No matching backtests</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Broaden the year, strategy, date, month, or weekday filters to run a
+            simulation.
+          </p>
+        </section>
+      )}
+    </>
+  );
+}
+
+function MonteCarloBandChart({
+  bands,
+  pathLength,
+  simulations,
+}: {
+  bands: MonteCarloBandPoint[];
+  pathLength: number;
+  simulations: number;
+}) {
+  const width = 800;
+  const height = 290;
+  const padding = 24;
+  const values = bands.flatMap((point) => [point.p5, point.p95, 0]);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const range = Math.max(maximum - minimum, 1);
+  const xFor = (step: number) =>
+    padding + (step / Math.max(pathLength, 1)) * (width - padding * 2);
+  const yFor = (value: number) =>
+    padding + ((maximum - value) / range) * (height - padding * 2);
+  const bandPolygon = (
+    upper: keyof MonteCarloBandPoint,
+    lower: keyof MonteCarloBandPoint,
+  ) =>
+    [
+      ...bands.map(
+        (point) => `${xFor(point.step)},${yFor(Number(point[upper]))}`,
+      ),
+      ...bands
+        .toReversed()
+        .map((point) => `${xFor(point.step)},${yFor(Number(point[lower]))}`),
+    ].join(' ');
+  const medianPoints = bands
+    .map((point) => `${xFor(point.step)},${yFor(point.median)}`)
+    .join(' ');
+
+  return (
+    <article className="surface overflow-hidden p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Percentile equity paths</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Median path with 50% and 90% probability bands across{' '}
+            {simulations.toLocaleString()} runs.
+          </p>
+        </div>
+        <Badge variant="outline">{pathLength} trades per path</Badge>
+      </div>
+      <div className="mt-5 h-72 w-full">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="h-full w-full overflow-visible"
+        >
+          <title>Monte Carlo percentile equity chart</title>
+          {Array.from({ length: 5 }, (_, index) => {
+            const y = padding + (index / 4) * (height - padding * 2);
+            return (
+              <line
+                key={index}
+                x1={padding}
+                x2={width - padding}
+                y1={y}
+                y2={y}
+                stroke="var(--border)"
+                strokeDasharray="4 8"
+              />
+            );
+          })}
+          <line
+            x1={padding}
+            x2={width - padding}
+            y1={yFor(0)}
+            y2={yFor(0)}
+            stroke="var(--muted-foreground)"
+            strokeOpacity=".55"
+            strokeDasharray="8 8"
+          />
+          <polygon
+            points={bandPolygon('p95', 'p5')}
+            fill="var(--primary)"
+            opacity=".10"
+          />
+          <polygon
+            points={bandPolygon('p75', 'p25')}
+            fill="var(--primary)"
+            opacity=".20"
+          />
+          <polyline
+            points={medianPoints}
+            fill="none"
+            stroke="var(--primary)"
+            strokeWidth="3.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-4 text-[10px] text-muted-foreground">
+        <CalendarLegend className="bg-primary" label="Median path" />
+        <CalendarLegend
+          className="bg-primary/40"
+          label="25th–75th percentile"
+        />
+        <CalendarLegend className="bg-primary/20" label="5th–95th percentile" />
+      </div>
+    </article>
+  );
+}
+
+function MonteCarloHistogram({ endings }: { endings: number[] }) {
+  const binCount = 14;
+  const minimum = endings[0] ?? 0;
+  const maximum = endings.at(-1) ?? 0;
+  const width = Math.max((maximum - minimum) / binCount, 1);
+  const bins = Array.from({ length: binCount }, (_, index) => ({
+    start: minimum + index * width,
+    count: 0,
+  }));
+  endings.forEach((ending) => {
+    const index = Math.min(
+      binCount - 1,
+      Math.max(0, Math.floor((ending - minimum) / width)),
+    );
+    bins[index].count += 1;
+  });
+  const maximumCount = Math.max(...bins.map((bin) => bin.count), 1);
+
+  return (
+    <article className="surface overflow-hidden p-5 sm:p-6">
+      <h2 className="text-sm font-semibold">Ending-result distribution</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Frequency of total RR outcomes at the end of each simulated path.
+      </p>
+      <div className="mt-6 flex h-64 items-end gap-1.5 border-b border-border">
+        {bins.map((bin, index) => (
+          <div
+            key={`${bin.start}-${index}`}
+            className="group relative flex h-full flex-1 items-end"
+          >
+            <div
+              className={`w-full rounded-t-sm transition hover:opacity-80 ${bin.start + width < 0 ? 'bg-destructive/65' : 'bg-primary/70'}`}
+              style={{ height: `${(bin.count / maximumCount) * 100}%` }}
+            />
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded bg-popover px-2 py-1 text-[9px] shadow group-hover:block">
+              {bin.count} paths · {bin.start.toFixed(1)}R+
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
+        <span>{minimum.toFixed(1)}R</span>
+        <span>{maximum.toFixed(1)}R</span>
+      </div>
+    </article>
+  );
+}
+
 function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
   const [tab, setTab] = useState<CombinedBacktestTab>('analytics');
   const [year, setYear] = useState('all');
