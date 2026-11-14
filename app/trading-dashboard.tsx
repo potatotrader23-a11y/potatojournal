@@ -1,6 +1,12 @@
 'use client';
 
-import { type SyntheticEvent, useEffect, useId, useState } from 'react';
+import {
+  Fragment,
+  type SyntheticEvent,
+  useEffect,
+  useId,
+  useState,
+} from 'react';
 import Image from 'next/image';
 import {
   Activity,
@@ -114,7 +120,7 @@ type SavedTrade = {
   completedAt: string | null;
   createdAt: string;
 };
-type BacktestTab = 'log' | 'calendar' | 'analytics' | 'history';
+type BacktestTab = 'log' | 'calendar' | 'analytics' | 'heatmap' | 'history';
 type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -1111,7 +1117,9 @@ function Backtesting({
         historyCount={backtests.length}
         onChange={setBacktestTab}
       />
-      {(backtestTab === 'analytics' || backtestTab === 'history') && (
+      {(backtestTab === 'analytics' ||
+        backtestTab === 'heatmap' ||
+        backtestTab === 'history') && (
         <YearFilter
           value={backtestYear}
           years={analyticsYears}
@@ -1248,6 +1256,15 @@ function Backtesting({
             ]}
           />
         </div>
+      )}
+      {backtestTab === 'heatmap' && (
+        <BacktestMonthlyHeatmap
+          backtests={filteredBacktests}
+          onMonthSelect={(month) => {
+            setCalendarMonth(month);
+            setBacktestTab('calendar');
+          }}
+        />
       )}
       {backtestTab === 'log' && (
         <form
@@ -1628,6 +1645,7 @@ function BacktestTabs({
     { value: 'log', label: 'Log Backtest', icon: FlaskConical },
     { value: 'calendar', label: 'Calendar', icon: CalendarDays },
     { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'heatmap', label: 'Monthly Heatmap', icon: CalendarDays },
     { value: 'history', label: 'History', icon: BookOpenCheck },
   ] as const;
 
@@ -1637,7 +1655,7 @@ function BacktestTabs({
       aria-label="Backtesting sections"
       className="surface mb-5 overflow-x-auto p-1.5"
     >
-      <div className="grid min-w-[570px] grid-cols-4 gap-1">
+      <div className="grid min-w-[720px] grid-cols-5 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = value === tab.value;
@@ -1663,6 +1681,208 @@ function BacktestTabs({
           );
         })}
       </div>
+    </div>
+  );
+}
+type MonthlyHeatmapResult = CalendarDayResult & {
+  year: string;
+  month: number;
+  key: string;
+};
+const shortMonthNames = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+function BacktestMonthlyHeatmap({
+  backtests,
+  onMonthSelect,
+}: {
+  backtests: SavedBacktest[];
+  onMonthSelect: (month: string) => void;
+}) {
+  const years = [
+    ...new Set(backtests.map((item) => item.backtestDate.slice(0, 4))),
+  ].sort((a, b) => b.localeCompare(a));
+  const monthlyResults = backtests.reduce<Map<string, CalendarDayResult>>(
+    (results, item) => {
+      const key = item.backtestDate.slice(0, 7);
+      const current = results.get(key) ?? {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        netR: 0,
+      };
+      current.trades += 1;
+      current.wins += item.resultR > 0 ? 1 : 0;
+      current.losses += item.resultR < 0 ? 1 : 0;
+      current.netR += item.resultR;
+      results.set(key, current);
+      return results;
+    },
+    new Map(),
+  );
+  const cells: MonthlyHeatmapResult[] = years.flatMap((year) =>
+    shortMonthNames.map((_, month) => {
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      return {
+        year,
+        month,
+        key,
+        ...(monthlyResults.get(key) ?? {
+          trades: 0,
+          wins: 0,
+          losses: 0,
+          netR: 0,
+        }),
+      };
+    }),
+  );
+  const activeMonths = cells.filter((cell) => cell.trades > 0);
+  const strongestMonth = activeMonths.toSorted((a, b) => b.netR - a.netR)[0];
+  const weakestMonth = activeMonths.toSorted((a, b) => a.netR - b.netR)[0];
+  const positiveMonths = activeMonths.filter((cell) => cell.netR > 0).length;
+  const maxAbsoluteResult = Math.max(
+    1,
+    ...activeMonths.map((cell) => Math.abs(cell.netR)),
+  );
+  const formatMonthResult = (cell: MonthlyHeatmapResult | undefined) =>
+    cell
+      ? `${shortMonthNames[cell.month]} ${cell.year} · ${cell.netR > 0 ? '+' : ''}${cell.netR}R`
+      : '—';
+
+  return (
+    <div className="premium-enter space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <BacktestStat label="Active months" value={`${activeMonths.length}`} />
+        <BacktestStat
+          label="Positive months"
+          value={
+            activeMonths.length
+              ? `${positiveMonths} / ${activeMonths.length}`
+              : '—'
+          }
+        />
+        <BacktestStat
+          label="Strongest month"
+          value={formatMonthResult(strongestMonth)}
+        />
+        <BacktestStat
+          label="Weakest month"
+          value={formatMonthResult(weakestMonth)}
+        />
+      </div>
+      <section className="surface overflow-hidden p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <CalendarDays className="size-4 text-primary" />
+              <h2 className="text-sm font-semibold">
+                Monthly performance heatmap
+              </h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Compare net RR by month. Select an active month to open its daily
+              calendar.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-sm bg-rose-500/60" /> Loss
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-sm bg-muted" /> No trades
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-sm bg-emerald-500/60" /> Profit
+            </span>
+          </div>
+        </div>
+        {activeMonths.length ? (
+          <div className="mt-5 overflow-x-auto pb-2">
+            <div className="min-w-[880px]">
+              <div className="grid grid-cols-[64px_repeat(12,minmax(58px,1fr))] gap-1.5">
+                <div />
+                {shortMonthNames.map((month) => (
+                  <div
+                    key={month}
+                    className="pb-1 text-center text-[10px] font-semibold uppercase tracking-[.12em] text-muted-foreground"
+                  >
+                    {month}
+                  </div>
+                ))}
+                {years.map((year) => (
+                  <Fragment key={year}>
+                    <div className="flex items-center text-xs font-semibold text-muted-foreground">
+                      {year}
+                    </div>
+                    {cells
+                      .filter((cell) => cell.year === year)
+                      .map((cell) => {
+                        const intensity =
+                          Math.abs(cell.netR) / maxAbsoluteResult;
+                        const backgroundColor =
+                          cell.trades === 0
+                            ? undefined
+                            : cell.netR > 0
+                              ? `rgba(16, 185, 129, ${0.12 + intensity * 0.46})`
+                              : cell.netR < 0
+                                ? `rgba(244, 63, 94, ${0.12 + intensity * 0.46})`
+                                : 'rgba(148, 163, 184, 0.16)';
+                        return (
+                          <button
+                            key={cell.key}
+                            type="button"
+                            disabled={!cell.trades}
+                            aria-label={
+                              cell.trades
+                                ? `${shortMonthNames[cell.month]} ${cell.year}: ${cell.netR > 0 ? '+' : ''}${cell.netR}R, ${cell.wins} wins and ${cell.losses} losses`
+                                : `${shortMonthNames[cell.month]} ${cell.year}: no backtests`
+                            }
+                            onClick={() => onMonthSelect(cell.key)}
+                            style={{ backgroundColor }}
+                            className={`group min-h-16 rounded-lg border px-1.5 py-2 text-center transition duration-200 ${
+                              cell.trades
+                                ? 'border-border/70 hover:-translate-y-0.5 hover:border-primary/60 hover:shadow-md'
+                                : 'cursor-default border-border/40 bg-muted/35 text-muted-foreground/45'
+                            }`}
+                          >
+                            {cell.trades ? (
+                              <>
+                                <span className="block text-sm font-semibold tabular-nums">
+                                  {cell.netR > 0 ? '+' : ''}
+                                  {cell.netR}R
+                                </span>
+                                <span className="mt-1 block text-[9px] font-medium opacity-75">
+                                  {cell.wins}W · {cell.losses}L
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-xs">—</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            Log a backtest to begin the monthly heatmap.
+          </div>
+        )}
+      </section>
     </div>
   );
 }
