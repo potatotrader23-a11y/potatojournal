@@ -22,6 +22,10 @@ export function cleanTradeTime(value: FormDataEntryValue | null) {
   return value;
 }
 
+export function cleanTradeTimeframe(value: FormDataEntryValue | null) {
+  return value === '5m' || value === '15m' ? value : null;
+}
+
 export function cleanTradeNumber(
   value: FormDataEntryValue | null,
   { positive = false, limit = 1_000_000_000 } = {},

@@ -108,7 +108,7 @@ type SavedTrade = {
   id: string;
   instrument: 'GBPUSD';
   session: 'London';
-  timeframe: '15m';
+  timeframe: '5m' | '15m';
   tradeDate: string;
   tradeTime: string;
   direction: 'Buy' | 'Sell';
@@ -276,7 +276,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
                 ? '15m research'
                 : view === 'backtesting-combined'
                   ? '5m + 15m research'
-                  : 'London · 15m'}
+                  : view === 'journal'
+                    ? 'London · 5m + 15m'
+                    : 'London journal'}
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -418,7 +420,7 @@ function DesktopSidebar({
           </span>
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          GBPUSD · London session · 15-minute timeframe.
+          GBPUSD · London session · 5m and 15m strategies.
         </p>
       </div>
     </aside>
@@ -2755,6 +2757,26 @@ function Journal({
     chronologicalCompleted.map((item) => item.resultR),
   );
   const liveWinRate = completed.length ? (wins / completed.length) * 100 : null;
+  const averageLiveReward = completed.length
+    ? completed.reduce(
+        (sum, trade) => sum + (trade.timeframe === '5m' ? 2 : 3),
+        0,
+      ) / completed.length
+    : null;
+  const liveBreakevenWinRate =
+    averageLiveReward === null ? null : 100 / (averageLiveReward + 1);
+  const strategyPerformanceLabel = (timeframe: '5m' | '15m') => {
+    const entries = completed.filter((trade) => trade.timeframe === timeframe);
+    if (!entries.length) return '—';
+    const strategyWins = entries.filter(
+      (trade) => trade.outcome === 'Win',
+    ).length;
+    const strategyNetR = entries.reduce(
+      (total, trade) => total + trade.resultR,
+      0,
+    );
+    return `${entries.length} trades · ${strategyWins}/${entries.length} wins · ${strategyNetR > 0 ? '+' : ''}${strategyNetR.toFixed(1)}R`;
+  };
   const bestLiveDay = bestPerformanceBucket(
     completed.map((item) => ({
       label: weekdayLabel(item.tradeDate),
@@ -2778,7 +2800,7 @@ function Journal({
     .map((item) => ({
       id: item.id,
       instrument: 'GBPUSD',
-      timeframe: '15m',
+      timeframe: item.timeframe,
       resultR: item.resultR,
       backtestDate: item.tradeDate,
       imageUrl: item.imageUrl,
@@ -2805,7 +2827,7 @@ function Journal({
       <PageHeading
         eyebrow="Live execution record"
         title="GBPUSD trading journal"
-        description="Your London-session, 15-minute live trades. Backtests stay in their own workspace."
+        description="Your London-session live trades across the 5m (+2R / -1R) and 15m (+3R / -1R) strategies."
         action={
           <Button onClick={() => openTrade()}>
             <Plus /> Add trade
@@ -2847,7 +2869,7 @@ function Journal({
             <Metric
               label="Live trades"
               value={loading ? '…' : `${filteredTrades.length}`}
-              detail="GBPUSD · London · 15m"
+              detail="GBPUSD · London · 5m + 15m"
               icon={BookOpenCheck}
             />
             <Metric
@@ -2935,15 +2957,15 @@ function Journal({
                   value: formatRatio(livePerformance.profitFactor),
                 },
                 {
-                  label: 'Edge vs 33.3% breakeven',
+                  label: `Edge vs ${liveBreakevenWinRate === null ? '—' : liveBreakevenWinRate.toFixed(1)}% breakeven`,
                   value:
-                    liveWinRate === null
+                    liveWinRate === null || liveBreakevenWinRate === null
                       ? '—'
-                      : `${liveWinRate - 33.3 >= 0 ? '+' : ''}${(liveWinRate - 33.3).toFixed(1)}%`,
+                      : `${liveWinRate - liveBreakevenWinRate >= 0 ? '+' : ''}${(liveWinRate - liveBreakevenWinRate).toFixed(1)}%`,
                   tone:
-                    liveWinRate === null
+                    liveWinRate === null || liveBreakevenWinRate === null
                       ? undefined
-                      : liveWinRate > 33.3
+                      : liveWinRate > liveBreakevenWinRate
                         ? 'win'
                         : 'loss',
                 },
@@ -2965,7 +2987,15 @@ function Journal({
                       ? '—'
                       : `${averageWinningMae.toFixed(1)} pips`,
                 },
-                { label: 'Market', value: 'GBPUSD · London · 15m' },
+                {
+                  label: '5m strategy',
+                  value: strategyPerformanceLabel('5m'),
+                },
+                {
+                  label: '15m strategy',
+                  value: strategyPerformanceLabel('15m'),
+                },
+                { label: 'Market', value: 'GBPUSD · London · 5m + 15m' },
               ]}
             />
           </div>
@@ -3120,6 +3150,7 @@ function JournalDayDialog({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold">GBPUSD</span>
                       <Badge variant="outline">{trade.tradeTime}</Badge>
+                      <Badge variant="secondary">{trade.timeframe}</Badge>
                       <Badge
                         variant="outline"
                         className={
@@ -3291,7 +3322,9 @@ function LiveTradeHistory({
                             >
                               {trade.direction}
                             </Badge>
-                            <Badge variant="secondary">London · 15m</Badge>
+                            <Badge variant="secondary">
+                              London · {trade.timeframe}
+                            </Badge>
                             <Badge
                               variant="outline"
                               className={
@@ -3451,15 +3484,23 @@ function CompleteTradeDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
+  const reward = trade?.timeframe === '15m' ? 3 : 2;
   const [resultR, setResultR] = useState<'-1' | '2' | '3' | ''>(() =>
-    trade?.outcome === 'Win' ? '2' : trade?.outcome === 'Loss' ? '-1' : '',
+    trade?.outcome === 'Win'
+      ? trade.timeframe === '15m'
+        ? '3'
+        : '2'
+      : trade?.outcome === 'Loss'
+        ? '-1'
+        : '',
   );
   const [maePips, setMaePips] = useState(trade?.maePips?.toString() ?? '');
   const [notes, setNotes] = useState(trade?.notes ?? '');
   const [postImage, setPostImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const outcome = resultR === '2' ? 'Win' : resultR === '-1' ? 'Loss' : null;
+  const outcome =
+    resultR === String(reward) ? 'Win' : resultR === '-1' ? 'Loss' : null;
   const save = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!trade || !outcome) return;
@@ -3494,8 +3535,9 @@ function CompleteTradeDialog({
             {trade?.outcome ? 'Edit trade result' : 'Complete trade'}
           </DialogTitle>
           <DialogDescription>
-            Mark the trade as a +2R win or -1R loss, then add the optional
-            post-trade screenshot and notes.
+            Mark this {trade?.timeframe ?? ''} strategy trade as a +{reward}R
+            win or -1R loss, then add the optional post-trade screenshot and
+            notes.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
@@ -3505,7 +3547,7 @@ function CompleteTradeDialog({
                 Calculated outcome
               </p>
               <p className="mt-0.5 text-sm font-medium">
-                +2R = Win · -1R = Loss
+                +{reward}R = Win · -1R = Loss
               </p>
             </div>
             <Badge
@@ -3522,7 +3564,11 @@ function CompleteTradeDialog({
             </Badge>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <BinaryResultField value={resultR} onChange={setResultR} />
+            <BinaryResultField
+              value={resultR}
+              reward={reward}
+              onChange={setResultR}
+            />
             {outcome !== 'Loss' ? (
               <Field label="MAE (pips)">
                 <Input
@@ -3613,6 +3659,7 @@ function TradeDialog({
   const [form, setForm] = useState({
     tradeDate: initialDate,
     tradeTime: londonTime(),
+    timeframe: '15m' as '5m' | '15m',
     direction: 'Buy' as 'Buy' | 'Sell',
     notes: '',
   });
@@ -3648,11 +3695,31 @@ function TradeDialog({
         <DialogHeader>
           <DialogTitle>Add live trade</DialogTitle>
           <DialogDescription>
-            GBPUSD · London session · 15-minute timeframe
+            GBPUSD · London session · choose the 5m or 15m strategy
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Strategy">
+              <Select
+                value={form.timeframe}
+                onValueChange={(value) =>
+                  value &&
+                  setForm({
+                    ...form,
+                    timeframe: value as '5m' | '15m',
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5m">5m · +2R / -1R</SelectItem>
+                  <SelectItem value="15m">15m · +3R / -1R</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="Direction">
               <Select
                 value={form.direction}

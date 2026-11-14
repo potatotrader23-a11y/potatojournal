@@ -25,7 +25,7 @@ export async function PATCH(
   const { id } = await params;
   const { data: trade, error: findError } = await supabase
     .from('trades')
-    .select('id, post_image_path')
+    .select('id, timeframe, post_image_path')
     .eq('id', id)
     .maybeSingle();
   if (findError)
@@ -35,6 +35,7 @@ export async function PATCH(
 
   const formData = await request.formData();
   const resultR = cleanTradeNumber(formData.get('resultR'), { limit: 100 });
+  const reward = trade.timeframe === '15m' ? 3 : 2;
   const maePips =
     resultR === -1
       ? null
@@ -43,15 +44,17 @@ export async function PATCH(
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
   if (
-    (resultR !== -1 && resultR !== 2) ||
-    (resultR === 2 && (maePips === null || maePips < 0))
+    (resultR !== -1 && resultR !== reward) ||
+    (resultR === reward && (maePips === null || maePips < 0))
   ) {
     return Response.json(
-      { error: 'Choose -1R or +2R and enter a valid MAE for wins' },
+      {
+        error: `Choose -1R or +${reward}R and enter a valid MAE for wins`,
+      },
       { status: 400 },
     );
   }
-  const outcome = resultR === 2 ? 'Win' : 'Loss';
+  const outcome = resultR === reward ? 'Win' : 'Loss';
 
   const postImage = formData.get('postImage');
   const imageError = validateTradeImage(postImage);

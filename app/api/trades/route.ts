@@ -2,6 +2,7 @@ import { createClient, hasSupabaseEnvironment } from '@/lib/supabase/server';
 import {
   cleanTradeDate,
   cleanTradeTime,
+  cleanTradeTimeframe,
   tradeImagePath,
   validateTradeImage,
 } from '@/lib/trades';
@@ -90,6 +91,7 @@ export async function POST(request: Request) {
   const direction = formData.get('direction');
   const tradeDate = cleanTradeDate(formData.get('tradeDate'));
   const tradeTime = cleanTradeTime(formData.get('tradeTime'));
+  const timeframe = cleanTradeTimeframe(formData.get('timeframe'));
   const rawNotes = formData.get('notes');
   const notes =
     typeof rawNotes === 'string' ? rawNotes.trim().slice(0, 5000) : '';
@@ -100,6 +102,12 @@ export async function POST(request: Request) {
   if (!tradeDate || !tradeTime) {
     return Response.json(
       { error: 'Enter a valid date and 24-hour time' },
+      { status: 400 },
+    );
+  }
+  if (!timeframe) {
+    return Response.json(
+      { error: 'Choose the 5m or 15m strategy' },
       { status: 400 },
     );
   }
@@ -125,7 +133,7 @@ export async function POST(request: Request) {
     account_id: null,
     instrument: 'GBPUSD',
     session: 'London',
-    timeframe: '15m',
+    timeframe,
     trade_date: tradeDate,
     trade_time: tradeTime,
     direction,
