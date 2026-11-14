@@ -126,7 +126,7 @@ type SavedTrade = {
   createdAt: string;
 };
 type BacktestTab = 'log' | 'calendar' | 'analytics' | 'heatmap' | 'history';
-type CombinedBacktestTab = 'calendar' | 'analytics' | 'heatmap';
+type CombinedBacktestTab = 'calendar' | 'analytics' | 'heatmap' | 'drawdown';
 type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -554,6 +554,20 @@ function performanceStats(results: number[]) {
     maxDrawdown,
     recoveryFactor: maxDrawdown > 0 ? net / maxDrawdown : null,
   };
+}
+
+function longestUnderwaterRun(results: number[]) {
+  let equity = 0;
+  let peak = 0;
+  let currentRun = 0;
+  let longestRun = 0;
+  results.forEach((result) => {
+    equity += result;
+    peak = Math.max(peak, equity);
+    currentRun = equity < peak ? currentRun + 1 : 0;
+    longestRun = Math.max(longestRun, currentRun);
+  });
+  return longestRun;
 }
 
 function formatRatio(value: number | null) {
@@ -1719,6 +1733,7 @@ function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
     { value: 'calendar', label: 'Calendar', icon: CalendarDays },
     { value: 'analytics', label: 'Analytics', icon: BarChart3 },
     { value: 'heatmap', label: 'Monthly Heatmap', icon: CalendarDays },
+    { value: 'drawdown', label: 'Drawdown Lab', icon: TrendingDown },
   ];
 
   return (
@@ -1733,7 +1748,7 @@ function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
         aria-label="Combined backtesting sections"
         className="surface mb-5 overflow-x-auto p-1.5"
       >
-        <div className="grid min-w-[470px] grid-cols-3 gap-1">
+        <div className="grid min-w-[640px] grid-cols-4 gap-1">
           {tabs.map((item) => {
             const Icon = item.icon;
             const active = tab === item.value;
@@ -1753,7 +1768,7 @@ function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
           })}
         </div>
       </div>
-      {(tab === 'analytics' || tab === 'heatmap') && (
+      {(tab === 'analytics' || tab === 'heatmap' || tab === 'drawdown') && (
         <YearFilter value={year} years={years} onChange={setYear} />
       )}
       {tab === 'calendar' && (
@@ -1883,6 +1898,9 @@ function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
           }}
         />
       )}
+      {tab === 'drawdown' && (
+        <BacktestDrawdownLab backtests={filteredBacktests} />
+      )}
       <BacktestDayDialog
         date={selectedCalendarDate}
         backtests={backtests.filter(
@@ -1891,6 +1909,314 @@ function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
         onOpenChange={(open) => !open && setSelectedCalendarDate(null)}
       />
     </>
+  );
+}
+type DrawdownScenario = {
+  key: string;
+  label: string;
+  removedTrades: number;
+  removedNetR: number;
+  remainingTrades: number;
+  maxDrawdown: number;
+  longestLossStreak: number;
+  longestUnderwaterRun: number;
+  netR: number;
+  drawdownReduction: number;
+  streakReduction: number;
+};
+function BacktestDrawdownLab({ backtests }: { backtests: SavedBacktest[] }) {
+  const [rankingMetric, setRankingMetric] = useState<'drawdown' | 'streak'>(
+    'drawdown',
+  );
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const chronological = backtests.toSorted(
+    (a, b) =>
+      a.backtestDate.localeCompare(b.backtestDate) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const baselineResults = chronological.map((item) => item.resultR);
+  const baselineStats = performanceStats(baselineResults);
+  const baselineLossStreak = longestOutcomeStreaks(
+    chronological.map((item) =>
+      item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+    ),
+  ).losses;
+  const baselineUnderwaterRun = longestUnderwaterRun(baselineResults);
+  const monthKeys = [
+    ...new Set(chronological.map((item) => item.backtestDate.slice(0, 7))),
+  ].sort((a, b) => b.localeCompare(a));
+  const formatMonth = (key: string) =>
+    new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  const scenarios: DrawdownScenario[] = monthKeys.map((key) => {
+    const removed = chronological.filter((item) =>
+      item.backtestDate.startsWith(key),
+    );
+    const remaining = chronological.filter(
+      (item) => !item.backtestDate.startsWith(key),
+    );
+    const remainingResults = remaining.map((item) => item.resultR);
+    const stats = performanceStats(remainingResults);
+    const longestLossStreak = longestOutcomeStreaks(
+      remaining.map((item) =>
+        item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+      ),
+    ).losses;
+    return {
+      key,
+      label: formatMonth(key),
+      removedTrades: removed.length,
+      removedNetR: removed.reduce((sum, item) => sum + item.resultR, 0),
+      remainingTrades: remaining.length,
+      maxDrawdown: stats.maxDrawdown,
+      longestLossStreak,
+      longestUnderwaterRun: longestUnderwaterRun(remainingResults),
+      netR: stats.net,
+      drawdownReduction: baselineStats.maxDrawdown - stats.maxDrawdown,
+      streakReduction: baselineLossStreak - longestLossStreak,
+    };
+  });
+  const rankedScenarios = scenarios.toSorted((a, b) =>
+    rankingMetric === 'drawdown'
+      ? b.drawdownReduction - a.drawdownReduction ||
+        b.streakReduction - a.streakReduction ||
+        b.netR - a.netR
+      : b.streakReduction - a.streakReduction ||
+        b.drawdownReduction - a.drawdownReduction ||
+        b.netR - a.netR,
+  );
+  const recommended = rankedScenarios[0];
+  const selected =
+    scenarios.find((scenario) => scenario.key === selectedMonth) ?? recommended;
+  const scenarioBacktests = selected
+    ? chronological.filter(
+        (item) => !item.backtestDate.startsWith(selected.key),
+      )
+    : chronological;
+  const selectedHelps = selected
+    ? selected.drawdownReduction > 0 || selected.streakReduction > 0
+    : false;
+  const retention = selected
+    ? (selected.remainingTrades / Math.max(chronological.length, 1)) * 100
+    : 0;
+  const formatEffect = (value: number, suffix: string) =>
+    `${value > 0 ? '−' : value < 0 ? '+' : ''}${Math.abs(value).toFixed(suffix === 'R' ? 1 : 0)}${suffix}`;
+
+  if (!backtests.length) {
+    return (
+      <section className="surface premium-enter p-6 text-center sm:p-10">
+        <TrendingDown className="mx-auto size-6 text-primary" />
+        <h2 className="mt-3 text-sm font-semibold">Drawdown Lab needs data</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Add 5m and 15m backtests first, then this lab can test every monthly
+          exclusion scenario.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="premium-enter space-y-4">
+      <section className="surface overflow-hidden p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2">
+              <TrendingDown className="size-4 text-primary" />
+              <h2 className="text-sm font-semibold">
+                Monthly exclusion simulator
+              </h2>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              This keeps your saved data intact and recalculates the combined 5m
+              + 15m sequence as if one specific calendar month never happened.
+            </p>
+          </div>
+          <div className="w-full sm:w-56">
+            <Label className="mb-2 block text-xs text-muted-foreground">
+              Rank months by
+            </Label>
+            <Select
+              value={rankingMetric}
+              onValueChange={(value) => {
+                if (value === 'drawdown' || value === 'streak') {
+                  setRankingMetric(value);
+                  setSelectedMonth(null);
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="drawdown">Drawdown reduction</SelectItem>
+                <SelectItem value="streak">Loss-streak reduction</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </section>
+
+      {selected ? (
+        <>
+          <section
+            className={`rounded-2xl border p-5 sm:p-6 ${selectedHelps ? 'border-emerald-500/25 bg-emerald-500/[.055]' : 'border-amber-500/25 bg-amber-500/[.055]'}`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">
+                  Historical answer
+                </p>
+                <h3 className="mt-1 text-lg font-semibold">
+                  {selectedHelps
+                    ? `Yes—excluding ${selected.label} improved at least one risk measure.`
+                    : `No—excluding ${selected.label} did not reduce either risk measure.`}
+                </h3>
+                <p className="mt-2 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+                  Maximum drawdown changes from{' '}
+                  {baselineStats.maxDrawdown.toFixed(1)}R to{' '}
+                  {selected.maxDrawdown.toFixed(1)}R; the longest losing streak
+                  changes from {baselineLossStreak} to{' '}
+                  {selected.longestLossStreak}. Net RR changes from{' '}
+                  {baselineStats.net > 0 ? '+' : ''}
+                  {baselineStats.net.toFixed(1)}R to{' '}
+                  {selected.netR > 0 ? '+' : ''}
+                  {selected.netR.toFixed(1)}R.
+                </p>
+              </div>
+              <Badge variant="outline">
+                {selected.removedTrades} entries excluded
+              </Badge>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-500/20 bg-background/50 p-3 text-[11px] leading-relaxed text-muted-foreground">
+              <strong className="text-foreground">
+                Use this as a clue, not a rule.
+              </strong>{' '}
+              Removing the worst month after seeing the results can overfit the
+              backtest. Validate any month filter on unseen data and check for a
+              real seasonal or execution reason before changing your plan.
+            </div>
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <BacktestStat
+              label="Maximum drawdown"
+              value={`${baselineStats.maxDrawdown.toFixed(1)}R → ${selected.maxDrawdown.toFixed(1)}R`}
+            />
+            <BacktestStat
+              label="Longest losing streak"
+              value={`${baselineLossStreak} → ${selected.longestLossStreak}`}
+            />
+            <BacktestStat
+              label="Longest underwater run"
+              value={`${baselineUnderwaterRun} → ${selected.longestUnderwaterRun} entries`}
+            />
+            <BacktestStat
+              label="Sample retained"
+              value={`${retention.toFixed(0)}%`}
+            />
+          </div>
+
+          <BacktestEquityCurve
+            backtests={scenarioBacktests}
+            title={`Scenario equity curve · without ${selected.label}`}
+            description={`Simulated combined curve after excluding ${selected.removedTrades} entries from ${selected.label}. Your saved backtests are unchanged.`}
+          />
+
+          <section className="surface overflow-hidden p-5 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Month-by-month impact ranking
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Select a month to inspect its scenario. The first row is the
+                  strongest result for the chosen ranking metric.
+                </p>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                Baseline: {baselineStats.maxDrawdown.toFixed(1)}R drawdown ·{' '}
+                {baselineLossStreak} losses in a row
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {rankedScenarios.map((scenario, index) => {
+                const active = selected.key === scenario.key;
+                return (
+                  <button
+                    key={scenario.key}
+                    type="button"
+                    onClick={() => setSelectedMonth(scenario.key)}
+                    className={`grid w-full gap-3 rounded-xl border p-3 text-left transition sm:grid-cols-[minmax(150px,1.3fr)_repeat(4,minmax(92px,1fr))] sm:items-center ${active ? 'border-primary/60 bg-primary/[.07] shadow-sm' : 'border-border hover:border-primary/35 hover:bg-muted/35'}`}
+                  >
+                    <span>
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        {scenario.label}
+                        {index === 0 ? (
+                          <Badge variant="secondary">Best impact</Badge>
+                        ) : null}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                        {scenario.removedTrades} entries · month net{' '}
+                        {scenario.removedNetR > 0 ? '+' : ''}
+                        {scenario.removedNetR.toFixed(1)}R
+                      </span>
+                    </span>
+                    <ScenarioValue
+                      label="DD effect"
+                      value={formatEffect(scenario.drawdownReduction, 'R')}
+                      positive={scenario.drawdownReduction > 0}
+                      negative={scenario.drawdownReduction < 0}
+                    />
+                    <ScenarioValue
+                      label="Streak effect"
+                      value={formatEffect(scenario.streakReduction, '')}
+                      positive={scenario.streakReduction > 0}
+                      negative={scenario.streakReduction < 0}
+                    />
+                    <ScenarioValue
+                      label="Scenario net"
+                      value={`${scenario.netR > 0 ? '+' : ''}${scenario.netR.toFixed(1)}R`}
+                    />
+                    <ScenarioValue
+                      label="Sample left"
+                      value={`${scenario.remainingTrades}`}
+                      negative={scenario.remainingTrades < 20}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      ) : null}
+    </div>
+  );
+}
+function ScenarioValue({
+  label,
+  value,
+  positive = false,
+  negative = false,
+}: {
+  label: string;
+  value: string;
+  positive?: boolean;
+  negative?: boolean;
+}) {
+  return (
+    <span>
+      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span
+        className={`mt-0.5 block text-sm font-semibold tabular-nums ${positive ? 'text-emerald-500' : negative ? 'text-destructive' : ''}`}
+      >
+        {value}
+      </span>
+    </span>
   );
 }
 function BacktestTabs({
