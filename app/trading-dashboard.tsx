@@ -74,7 +74,12 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
-type View = 'overview' | 'backtesting' | 'backtesting-15m' | 'journal';
+type View =
+  | 'overview'
+  | 'backtesting'
+  | 'backtesting-15m'
+  | 'backtesting-combined'
+  | 'journal';
 type AccountType = 'Personal' | 'Forex' | 'Prop firm';
 type TradingAccount = {
   id: string;
@@ -121,6 +126,7 @@ type SavedTrade = {
   createdAt: string;
 };
 type BacktestTab = 'log' | 'calendar' | 'analytics' | 'heatmap' | 'history';
+type CombinedBacktestTab = 'calendar' | 'analytics' | 'heatmap';
 type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
   new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -166,6 +172,11 @@ const nav: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: 'journal', label: 'Journal', icon: BookOpenCheck },
   { id: 'backtesting', label: '5m Backtest', icon: FlaskConical },
   { id: 'backtesting-15m', label: '15m Backtest', icon: GitCompareArrows },
+  {
+    id: 'backtesting-combined',
+    label: 'Combined Backtest',
+    icon: BarChart3,
+  },
 ];
 const money = (value: number, currency = 'USD') =>
   new Intl.NumberFormat('en-US', {
@@ -263,7 +274,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
               ? '5m research'
               : view === 'backtesting-15m'
                 ? '15m research'
-                : 'London · 15m'}
+                : view === 'backtesting-combined'
+                  ? '5m + 15m research'
+                  : 'London · 15m'}
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -274,9 +287,16 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
             >
               {light ? <Moon /> : <Sun />}
             </Button>
-            {(view === 'backtesting' || view === 'backtesting-15m') && (
+            {(view === 'backtesting' ||
+              view === 'backtesting-15m' ||
+              view === 'backtesting-combined') && (
               <Badge variant="outline" className="hidden sm:flex">
-                {view === 'backtesting' ? '5m' : '15m'} backtest workspace
+                {view === 'backtesting'
+                  ? '5m'
+                  : view === 'backtesting-15m'
+                    ? '15m'
+                    : '5m + 15m'}{' '}
+                backtest workspace
               </Badge>
             )}
             <button
@@ -325,6 +345,9 @@ export default function TradingDashboard({ userEmail }: { userEmail: string }) {
                 timeframe="15m"
                 reward={3}
               />
+            )}
+            {view === 'backtesting-combined' && (
+              <CombinedBacktesting backtests={backtests} />
             )}{' '}
             {view === 'journal' && (
               <Journal
@@ -1632,6 +1655,242 @@ function Backtesting({
     </>
   );
 }
+function CombinedBacktesting({ backtests }: { backtests: SavedBacktest[] }) {
+  const [tab, setTab] = useState<CombinedBacktestTab>('analytics');
+  const [year, setYear] = useState('all');
+  const [calendarMonth, setCalendarMonth] = useState(() =>
+    manilaToday().slice(0, 7),
+  );
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<
+    string | null
+  >(null);
+  const years = availableYears(backtests.map((item) => item.backtestDate));
+  const filteredBacktests = backtests.filter((item) =>
+    isInYear(item.backtestDate, year),
+  );
+  const chronologicalBacktests = filteredBacktests.toSorted(
+    (a, b) =>
+      a.backtestDate.localeCompare(b.backtestDate) ||
+      Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const results = chronologicalBacktests.map((item) => item.resultR);
+  const stats = performanceStats(results);
+  const wins = filteredBacktests.filter((item) => item.resultR > 0).length;
+  const losses = filteredBacktests.filter((item) => item.resultR < 0).length;
+  const winRate = filteredBacktests.length
+    ? (wins / filteredBacktests.length) * 100
+    : null;
+  const streaks = longestOutcomeStreaks(
+    chronologicalBacktests.map((item) =>
+      item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+    ),
+  );
+  const bestDay = bestPerformanceBucket(
+    filteredBacktests.map((item) => ({
+      label: weekdayLabel(item.backtestDate),
+      resultR: item.resultR,
+    })),
+  );
+  const strategyResult = (timeframe: '5m' | '15m') => {
+    const entries = filteredBacktests.filter(
+      (item) => item.timeframe === timeframe,
+    );
+    const net = entries.reduce((total, item) => total + item.resultR, 0);
+    const strategyWins = entries.filter((item) => item.resultR > 0).length;
+    return {
+      entries: entries.length,
+      net,
+      winRate: entries.length ? (strategyWins / entries.length) * 100 : null,
+    };
+  };
+  const fiveMinute = strategyResult('5m');
+  const fifteenMinute = strategyResult('15m');
+  const formatStrategy = (strategy: ReturnType<typeof strategyResult>) =>
+    strategy.entries
+      ? `${strategy.net > 0 ? '+' : ''}${strategy.net.toFixed(1)}R · ${strategy.winRate?.toFixed(0)}% W`
+      : '—';
+  const tabs: {
+    value: CombinedBacktestTab;
+    label: string;
+    icon: typeof CalendarDays;
+  }[] = [
+    { value: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'heatmap', label: 'Monthly Heatmap', icon: CalendarDays },
+  ];
+
+  return (
+    <>
+      <PageHeading
+        eyebrow="Unified strategy review"
+        title="Combined backtesting"
+        description="One read-only performance view merging every saved GBPUSD 5m and 15m backtest."
+      />
+      <div
+        role="tablist"
+        aria-label="Combined backtesting sections"
+        className="surface mb-5 overflow-x-auto p-1.5"
+      >
+        <div className="grid min-w-[470px] grid-cols-3 gap-1">
+          {tabs.map((item) => {
+            const Icon = item.icon;
+            const active = tab === item.value;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(item.value)}
+                className={`tab-pill flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-medium ${active ? 'is-active bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+              >
+                <Icon className="size-4" />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {(tab === 'analytics' || tab === 'heatmap') && (
+        <YearFilter value={year} years={years} onChange={setYear} />
+      )}
+      {tab === 'calendar' && (
+        <BacktestCalendar
+          backtests={backtests}
+          month={calendarMonth}
+          selectedDate=""
+          onMonthChange={setCalendarMonth}
+          onResultSelect={setSelectedCalendarDate}
+          mode="combined"
+        />
+      )}
+      {tab === 'analytics' && (
+        <div className="premium-enter space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <BacktestStat
+              label="Combined entries"
+              value={`${filteredBacktests.length}`}
+            />
+            <BacktestStat
+              label="Combined win rate"
+              value={winRate === null ? '—' : `${winRate.toFixed(1)}%`}
+            />
+            <BacktestStat
+              label="Combined net result"
+              value={
+                filteredBacktests.length
+                  ? `${stats.net > 0 ? '+' : ''}${stats.net.toFixed(1)}R`
+                  : '—'
+              }
+            />
+            <BacktestStat
+              label="Expectancy per entry"
+              value={
+                stats.expectancy === null
+                  ? '—'
+                  : `${stats.expectancy > 0 ? '+' : ''}${stats.expectancy.toFixed(2)}R`
+              }
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <BacktestStat
+              label={`5m strategy · ${fiveMinute.entries} entries`}
+              value={formatStrategy(fiveMinute)}
+            />
+            <BacktestStat
+              label={`15m strategy · ${fifteenMinute.entries} entries`}
+              value={formatStrategy(fifteenMinute)}
+            />
+          </div>
+          <BacktestEquityCurve
+            backtests={filteredBacktests}
+            title="Combined equity curve"
+            description="Cumulative RR from 5m and 15m backtests merged in chronological order."
+          />
+          <OutcomeAnalytics
+            title="Combined backtest outcomes"
+            wins={wins}
+            losses={losses}
+            rows={[
+              {
+                label: 'Combined win rate',
+                value: winRate === null ? '—' : `${winRate.toFixed(1)}%`,
+              },
+              {
+                label: 'Average RR',
+                value: filteredBacktests.length
+                  ? `${stats.net / filteredBacktests.length >= 0 ? '+' : ''}${(stats.net / filteredBacktests.length).toFixed(2)}R`
+                  : '—',
+                tone:
+                  stats.net > 0 ? 'win' : stats.net < 0 ? 'loss' : undefined,
+              },
+              {
+                label: 'Profit factor',
+                value: formatRatio(stats.profitFactor),
+              },
+              {
+                label: 'Maximum drawdown',
+                value: `${stats.maxDrawdown.toFixed(1)}R`,
+                tone: stats.maxDrawdown > 0 ? 'loss' : undefined,
+              },
+              {
+                label: 'Recovery factor',
+                value: formatRatio(stats.recoveryFactor),
+              },
+              { label: 'Best weekday', value: bestDay },
+              {
+                label: 'Most wins in a row',
+                value: filteredBacktests.length ? String(streaks.wins) : '—',
+                tone: streaks.wins ? 'win' : undefined,
+              },
+              {
+                label: 'Most losses in a row',
+                value: filteredBacktests.length ? String(streaks.losses) : '—',
+                tone: streaks.losses ? 'loss' : undefined,
+              },
+              {
+                label: '5m contribution',
+                value: formatStrategy(fiveMinute),
+                tone:
+                  fiveMinute.net > 0
+                    ? 'win'
+                    : fiveMinute.net < 0
+                      ? 'loss'
+                      : undefined,
+              },
+              {
+                label: '15m contribution',
+                value: formatStrategy(fifteenMinute),
+                tone:
+                  fifteenMinute.net > 0
+                    ? 'win'
+                    : fifteenMinute.net < 0
+                      ? 'loss'
+                      : undefined,
+              },
+            ]}
+          />
+        </div>
+      )}
+      {tab === 'heatmap' && (
+        <BacktestMonthlyHeatmap
+          backtests={filteredBacktests}
+          onMonthSelect={(month) => {
+            setCalendarMonth(month);
+            setTab('calendar');
+          }}
+        />
+      )}
+      <BacktestDayDialog
+        date={selectedCalendarDate}
+        backtests={backtests.filter(
+          (item) => item.backtestDate === selectedCalendarDate,
+        )}
+        onOpenChange={(open) => !open && setSelectedCalendarDate(null)}
+      />
+    </>
+  );
+}
 function BacktestTabs({
   value,
   historyCount,
@@ -1905,9 +2164,9 @@ function BacktestCalendar({
   month: string;
   selectedDate: string;
   onMonthChange: (month: string) => void;
-  onDateSelect: (date: string) => void;
+  onDateSelect?: (date: string) => void;
   onResultSelect?: (date: string) => void;
-  mode?: 'backtest' | 'live';
+  mode?: 'backtest' | 'live' | 'combined';
 }) {
   const [year, monthNumber] = month.split('-').map(Number);
   const firstWeekday = new Date(year, monthNumber - 1, 1).getDay();
@@ -1969,8 +2228,9 @@ function BacktestCalendar({
             <h2 className="text-sm font-semibold">Win / loss calendar</h2>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Daily GBPUSD results. Select a result day to review it, or an empty
-            day to log another {mode === 'live' ? 'trade' : 'backtest'}.
+            {mode === 'combined'
+              ? 'Merged daily GBPUSD results from both strategies. Select a result day to review its 5m and 15m entries.'
+              : `Daily GBPUSD results. Select a result day to review it, or an empty day to log another ${mode === 'live' ? 'trade' : 'backtest'}.`}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -2052,13 +2312,14 @@ function BacktestCalendar({
             <button
               key={date}
               type="button"
+              disabled={mode === 'combined' && !result}
               aria-label={`${formatBacktestDate(date)}${result ? `, ${result.wins} wins, ${result.losses} losses, ${result.netR.toFixed(1)} R` : ', no trades'}`}
               onClick={() =>
                 result && onResultSelect
                   ? onResultSelect(date)
-                  : onDateSelect(date)
+                  : onDateSelect?.(date)
               }
-              className={`min-h-16 border-b border-r border-border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${tone} ${selectedDate === date ? 'relative z-10 ring-2 ring-inset ring-primary' : ''}`}
+              className={`min-h-16 border-b border-r border-border p-1.5 text-left transition sm:min-h-24 sm:p-2 ${tone} ${mode === 'combined' && !result ? 'cursor-default' : ''} ${selectedDate === date ? 'relative z-10 ring-2 ring-inset ring-primary' : ''}`}
             >
               <span className="text-xs font-semibold">{day}</span>
               {result && (
@@ -2122,7 +2383,7 @@ function BacktestDayDialog({
                 <div>
                   <p className="text-sm font-semibold">GBPUSD</p>
                   <p className="text-xs text-muted-foreground">
-                    Backtest {index + 1}
+                    {backtest.timeframe} backtest {index + 1}
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
@@ -2139,6 +2400,7 @@ function BacktestDayDialog({
                     {backtest.resultR > 0 ? '+' : ''}
                     {backtest.resultR}R
                   </Badge>
+                  <Badge variant="outline">{backtest.timeframe}</Badge>
                 </div>
               </div>
               {backtest.imageUrl ? (
@@ -2345,7 +2607,15 @@ function EquityCurveCard({
   );
 }
 
-function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
+function BacktestEquityCurve({
+  backtests,
+  title = 'Backtest equity curve',
+  description = 'Cumulative RR across saved GBPUSD backtests, ordered by test date.',
+}: {
+  backtests: SavedBacktest[];
+  title?: string;
+  description?: string;
+}) {
   const chronological = backtests.toSorted(
     (a, b) =>
       a.backtestDate.localeCompare(b.backtestDate) ||
@@ -2354,8 +2624,8 @@ function BacktestEquityCurve({ backtests }: { backtests: SavedBacktest[] }) {
   return (
     <EquityCurveCard
       values={chronological.map((item) => item.resultR)}
-      title="Backtest equity curve"
-      description="Cumulative RR across saved GBPUSD backtests, ordered by test date."
+      title={title}
+      description={description}
       countLabel={
         backtests.length
           ? `${backtests.length} tested entr${backtests.length === 1 ? 'y' : 'ies'}`
