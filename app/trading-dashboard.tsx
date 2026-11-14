@@ -125,7 +125,13 @@ type SavedTrade = {
   completedAt: string | null;
   createdAt: string;
 };
-type BacktestTab = 'log' | 'calendar' | 'analytics' | 'heatmap' | 'history';
+type BacktestTab =
+  | 'log'
+  | 'calendar'
+  | 'analytics'
+  | 'weekdays'
+  | 'heatmap'
+  | 'history';
 type CombinedBacktestTab = 'calendar' | 'analytics' | 'heatmap' | 'drawdown';
 type JournalTab = 'trades' | 'calendar' | 'analytics';
 const manilaToday = () =>
@@ -1157,6 +1163,7 @@ function Backtesting({
         onChange={setBacktestTab}
       />
       {(backtestTab === 'analytics' ||
+        backtestTab === 'weekdays' ||
         backtestTab === 'heatmap' ||
         backtestTab === 'history') && (
         <YearFilter
@@ -1185,6 +1192,12 @@ function Backtesting({
             }
           />
         </div>
+      )}
+      {backtestTab === 'weekdays' && (
+        <BacktestWeekdayAnalytics
+          backtests={filteredBacktests}
+          reward={reward}
+        />
       )}
       {backtestTab === 'calendar' && (
         <BacktestCalendar
@@ -2232,6 +2245,7 @@ function BacktestTabs({
     { value: 'log', label: 'Log Backtest', icon: FlaskConical },
     { value: 'calendar', label: 'Calendar', icon: CalendarDays },
     { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'weekdays', label: 'Weekdays', icon: BarChart3 },
     { value: 'heatmap', label: 'Monthly Heatmap', icon: CalendarDays },
     { value: 'history', label: 'History', icon: BookOpenCheck },
   ] as const;
@@ -2242,7 +2256,7 @@ function BacktestTabs({
       aria-label="Backtesting sections"
       className="surface mb-5 overflow-x-auto p-1.5"
     >
-      <div className="grid min-w-[720px] grid-cols-5 gap-1">
+      <div className="grid min-w-[840px] grid-cols-6 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = value === tab.value;
@@ -2268,6 +2282,300 @@ function BacktestTabs({
           );
         })}
       </div>
+    </div>
+  );
+}
+type WeekdayBacktestStats = {
+  key: string;
+  label: string;
+  entries: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  netR: number;
+  expectancy: number | null;
+  profitFactor: number | null;
+  maxDrawdown: number;
+  lossStreak: number;
+  underwaterRun: number;
+  edge: number | null;
+  share: number;
+};
+const tradingWeekdays = [
+  { key: 'Mon', label: 'Monday' },
+  { key: 'Tue', label: 'Tuesday' },
+  { key: 'Wed', label: 'Wednesday' },
+  { key: 'Thu', label: 'Thursday' },
+  { key: 'Fri', label: 'Friday' },
+];
+function BacktestWeekdayAnalytics({
+  backtests,
+  reward,
+}: {
+  backtests: SavedBacktest[];
+  reward: 2 | 3;
+}) {
+  const requiredWinRate = 100 / (reward + 1);
+  const weekdays: WeekdayBacktestStats[] = tradingWeekdays.map((weekday) => {
+    const entries = backtests
+      .filter((item) => weekdayLabel(item.backtestDate) === weekday.key)
+      .toSorted(
+        (a, b) =>
+          a.backtestDate.localeCompare(b.backtestDate) ||
+          Date.parse(a.createdAt) - Date.parse(b.createdAt),
+      );
+    const results = entries.map((item) => item.resultR);
+    const stats = performanceStats(results);
+    const wins = entries.filter((item) => item.resultR > 0).length;
+    const losses = entries.filter((item) => item.resultR < 0).length;
+    const winRate = entries.length ? (wins / entries.length) * 100 : null;
+    return {
+      key: weekday.key,
+      label: weekday.label,
+      entries: entries.length,
+      wins,
+      losses,
+      winRate,
+      netR: stats.net,
+      expectancy: stats.expectancy,
+      profitFactor: stats.profitFactor,
+      maxDrawdown: stats.maxDrawdown,
+      lossStreak: longestOutcomeStreaks(
+        entries.map((item) =>
+          item.resultR > 0 ? 'Win' : item.resultR < 0 ? 'Loss' : 'Breakeven',
+        ),
+      ).losses,
+      underwaterRun: longestUnderwaterRun(results),
+      edge: winRate === null ? null : winRate - requiredWinRate,
+      share: backtests.length ? (entries.length / backtests.length) * 100 : 0,
+    };
+  });
+  const activeWeekdays = weekdays.filter((day) => day.entries > 0);
+  const bestWeekday = activeWeekdays.toSorted(
+    (a, b) =>
+      (b.expectancy ?? -Infinity) - (a.expectancy ?? -Infinity) ||
+      b.netR - a.netR,
+  )[0];
+  const weakestWeekday = activeWeekdays.toSorted(
+    (a, b) =>
+      (a.expectancy ?? Infinity) - (b.expectancy ?? Infinity) ||
+      a.netR - b.netR,
+  )[0];
+  const highestWinRate = activeWeekdays.toSorted(
+    (a, b) => (b.winRate ?? 0) - (a.winRate ?? 0) || b.entries - a.entries,
+  )[0];
+  const profitableWeekdays = activeWeekdays.filter(
+    (day) => day.netR > 0,
+  ).length;
+  const thinSamples = activeWeekdays.filter((day) => day.entries < 20);
+  const confidenceLabel = (entries: number) =>
+    entries >= 50
+      ? 'Stronger sample'
+      : entries >= 20
+        ? 'Developing'
+        : 'Low sample';
+  const formatDay = (day: WeekdayBacktestStats | undefined) =>
+    day
+      ? `${day.label} · ${day.expectancy !== null && day.expectancy >= 0 ? '+' : ''}${day.expectancy?.toFixed(2)}R avg`
+      : '—';
+
+  if (!backtests.length) {
+    return (
+      <section className="surface premium-enter p-6 text-center sm:p-10">
+        <BarChart3 className="mx-auto size-6 text-primary" />
+        <h2 className="mt-3 text-sm font-semibold">No weekday data yet</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Log backtests with dates to compare Monday through Friday.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="premium-enter space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <BacktestStat label="Best expectancy" value={formatDay(bestWeekday)} />
+        <BacktestStat
+          label="Highest win rate"
+          value={
+            highestWinRate
+              ? `${highestWinRate.label} · ${highestWinRate.winRate?.toFixed(1)}%`
+              : '—'
+          }
+        />
+        <BacktestStat
+          label="Weakest expectancy"
+          value={formatDay(weakestWeekday)}
+        />
+        <BacktestStat
+          label="Profitable weekdays"
+          value={`${profitableWeekdays} / ${activeWeekdays.length || 5}`}
+        />
+      </div>
+
+      <section className="surface overflow-hidden p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <BarChart3 className="size-4 text-primary" />
+              <h2 className="text-sm font-semibold">Monday–Friday edge map</h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Each day is measured against the {requiredWinRate.toFixed(1)}%
+              breakeven win rate for this +{reward}R / -1R strategy.
+            </p>
+          </div>
+          <Badge variant="outline">{backtests.length} dated entries</Badge>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {weekdays.map((day) => {
+            const positive = day.netR > 0;
+            const negative = day.netR < 0;
+            return (
+              <article
+                key={day.key}
+                className={`rounded-2xl border p-4 ${positive ? 'border-emerald-500/25 bg-emerald-500/[.045]' : negative ? 'border-destructive/25 bg-destructive/[.035]' : 'border-border bg-muted/20'}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold">{day.label}</h3>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      {day.entries} entries · {confidenceLabel(day.entries)}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-sm font-semibold tabular-nums ${positive ? 'text-emerald-500' : negative ? 'text-destructive' : ''}`}
+                  >
+                    {day.netR > 0 ? '+' : ''}
+                    {day.netR.toFixed(1)}R
+                  </span>
+                </div>
+                <div className="mt-4">
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Win rate</span>
+                    <span>
+                      {day.winRate === null
+                        ? '—'
+                        : `${day.winRate.toFixed(1)}%`}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${day.winRate !== null && day.winRate >= requiredWinRate ? 'bg-emerald-500' : 'bg-destructive'}`}
+                      style={{ width: `${day.winRate ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <TinyStat
+                    label="Expectancy"
+                    value={
+                      day.expectancy === null
+                        ? '—'
+                        : `${day.expectancy >= 0 ? '+' : ''}${day.expectancy.toFixed(2)}R`
+                    }
+                  />
+                  <TinyStat
+                    label="Edge"
+                    value={
+                      day.edge === null
+                        ? '—'
+                        : `${day.edge >= 0 ? '+' : ''}${day.edge.toFixed(1)}%`
+                    }
+                  />
+                  <TinyStat
+                    label="Max DD"
+                    value={`${day.maxDrawdown.toFixed(1)}R`}
+                  />
+                  <TinyStat label="Loss streak" value={`${day.lossStreak}`} />
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="surface overflow-hidden p-5 sm:p-6">
+        <div>
+          <h2 className="text-sm font-semibold">Detailed weekday comparison</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Exact performance, risk, and sample-distribution metrics for every
+            London-session weekday.
+          </p>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[920px] text-left text-xs">
+            <thead className="border-b border-border text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="py-3 pr-4 font-semibold">Day</th>
+                <th className="px-3 py-3 font-semibold">Trades</th>
+                <th className="px-3 py-3 font-semibold">W / L</th>
+                <th className="px-3 py-3 font-semibold">Win rate</th>
+                <th className="px-3 py-3 font-semibold">Net RR</th>
+                <th className="px-3 py-3 font-semibold">Expectancy</th>
+                <th className="px-3 py-3 font-semibold">Profit factor</th>
+                <th className="px-3 py-3 font-semibold">Max DD</th>
+                <th className="px-3 py-3 font-semibold">Loss streak</th>
+                <th className="pl-3 py-3 font-semibold">Sample share</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {weekdays.map((day) => (
+                <tr key={day.key} className="transition hover:bg-muted/25">
+                  <td className="py-3 pr-4 font-semibold">{day.label}</td>
+                  <td className="px-3 py-3 tabular-nums">{day.entries}</td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {day.wins} / {day.losses}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {day.winRate === null ? '—' : `${day.winRate.toFixed(1)}%`}
+                  </td>
+                  <td
+                    className={`px-3 py-3 font-semibold tabular-nums ${day.netR > 0 ? 'text-emerald-500' : day.netR < 0 ? 'text-destructive' : ''}`}
+                  >
+                    {day.netR > 0 ? '+' : ''}
+                    {day.netR.toFixed(1)}R
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {day.expectancy === null
+                      ? '—'
+                      : `${day.expectancy >= 0 ? '+' : ''}${day.expectancy.toFixed(2)}R`}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {formatRatio(day.profitFactor)}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">
+                    {day.maxDrawdown.toFixed(1)}R
+                  </td>
+                  <td className="px-3 py-3 tabular-nums">{day.lossStreak}</td>
+                  <td className="pl-3 py-3 tabular-nums">
+                    {day.share.toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-primary/20 bg-primary/[.045] p-5 sm:p-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-primary">
+          Interpretation
+        </p>
+        <p className="mt-2 text-sm font-medium">
+          {bestWeekday && weakestWeekday
+            ? `${bestWeekday.label} currently has the strongest expectancy, while ${weakestWeekday.label} is the weakest.`
+            : 'More dated entries are needed for a weekday comparison.'}
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          {thinSamples.length
+            ? `${thinSamples.map((day) => day.label).join(', ')} ${thinSamples.length === 1 ? 'has' : 'have'} fewer than 20 trades, so treat the ranking as preliminary. `
+            : ''}
+          A weak historical weekday is a research signal, not automatically a
+          day to stop trading. Validate the pattern on newer, unseen trades
+          before changing your execution plan.
+        </p>
+      </section>
     </div>
   );
 }
